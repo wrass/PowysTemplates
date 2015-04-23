@@ -831,6 +831,7 @@ Sub ProcessTemplateFile (s_filePath as String)
 				i_startChar = InStr(1, s_fileInput, """") + 1
 				i_endChar = InStr(1, s_fileInput, "%%")
 				i = i + 1
+				If i > 25 Then Goto discardField End If
 				M_ARR_TMPL_FIELDS(i).label = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar) & ": "
 				i_startChar = i_endChar
 				i_endChar = Len(s_fileInput)
