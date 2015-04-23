@@ -15,7 +15,7 @@ Dim Ms_MBXFileName as String
 Dim DEBUG as Logical
 ' ================================================================================
 
-' Main subroutine - creates the Templates toolbar
+' Main subroutine
 ' ================================================================================
 Sub Main
 	Dim s_fullMBXPath as String
@@ -42,13 +42,13 @@ Sub readINI
 	
 	Dim s_iniFileName as String
 	Dim s_inputBuffer as String
-	s_iniFileName = ApplicationDirectory$() & ApplicationName$()
-	s_iniFileName = Left$(s_iniFileName, Len(s_iniFileName) - 4) & ".ini"
+	s_iniFileName = ApplicationDirectory$() & "PowysTemplatesLoader.ini"
+	' s_iniFileName = Left$(s_iniFileName, Len(s_iniFileName) - 4) & ".ini"
 	If DEBUG Then Print "ini filename: " & s_iniFileName End If
 	
 	' check for ini file
 	If Not FileExists(s_iniFileName) Then
-		Note "Error in " & ApplicationName$() & "[readINI]: Could not find ini file." & Chr$(10) & "Please contact Corporate GIS."
+		Note "Error in MBX routine [readINI]: Could not find ini file." & Chr$(10) & "Please contact Corporate GIS."
 		End Program
 	End If
 	

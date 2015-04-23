@@ -1,0 +1,87 @@
+!Workspace
+!Version  950
+!Charset WindowsLatin1
+Open Table "templates\template_20140715_515\Pcc_logo" As Pcc_logo Interactive
+Set Window MapBasic
+  Position (0.125,8.94792) Units "in"
+  Width 12.0417 Units "in" Height 1.375 Units "in" 
+Open Window MapBasic
+Map From Pcc_logo
+  Position (0.0520833,0.0520833) Units "in"
+  Width 1.20833 Units "in" Height 0.666667 Units "in" Min
+Set Window FrontWindow() ScrollBars Off Autoscroll On
+Set Map
+  CoordSys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+  Center (276424.2203,324592.6095)
+  Zoom 24.63538 Units "km"
+  Preserve Zoom Display Zoom
+  Distance Units "km" Area Units "sq km" XY Units "m"
+  Distance Type Cartesian
+Set Map
+  Layer 1
+    Display Graphic
+    Global Pen (1,2,0) Brush (2,16777215,16777215) Symbol (35,0,12) Line (1,2,0) Font ("Arial",0,9,0)
+    Label Line None Position Center Font ("Arial",0,9,0) Pen (1,2,0) 
+      With ID
+      Parallel On Auto Off Overlap Off Duplicates On Offset 2
+      Visibility On
+Set Window FrontWindow() Printer
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
+ Papersize 9
+Layout
+  Position (0.229167,0.03125) Units "in"
+  Width 7.1875 Units "in" Height 5.10417 Units "in" 
+  Dim uniqueStringName As String
+  uniqueStringName = "Set " + SessionInfo(1)
+  Set CoordSys Layout Units "in"
+  Create Text
+    "Printed by:"
+    (0.3708,7.9076) (0.7924,8.0257)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "Date:"
+    (1.4903,7.9076) (1.7118,8.0257)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Frame (0.3618,0.2847) (11.3389,7.8993)
+    Pen (1,2,0) 
+    Brush (2,16777215,16777215)
+    Title ""
+    FillFrame On
+  Create Frame (10.4569,0.4361) (11.1979,0.9278)
+    Pen (1,1,0) 
+    Brush (2,16777215,16777215)
+    Title "Pcc_logo Map"
+    FillFrame On
+  Create Text
+    "%%username"
+    (0.7562,7.9076) (1.2993,8.0257)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "%%date"
+    (1.7243,7.9076) (2.0576,8.0257)
+    Font ("Arial",256,6,0,16777215)
+
+  Set Layout Ruler On Pagebreaks On Frame Contents Active
+  Zoom 56.9556 Center (5.92813,4.13333) Extents To Fit
+  Set Window FrontWindow() Autoscroll On Enhanced On
+  Run Command uniqueStringName
+  Undim uniqueStringName
+Set Window FrontWindow() Title "A4 Landscape BARE MINIMUM"
+Set Window FrontWindow() Printer
+ Name "MapInfo PDF Printer Version 10.5" Orientation Landscape Copies 1
+ Papersize 9
+ Margins Left 0.24 Right 0.228333 Top 0.233333 Bottom 0.233333 Units "in"
+Set Digitizer
+  (306000,332000) (1770,5434) Label "Pt 1",
+  (306000,320000) (1706,712) Label "Pt 2",
+  (320000,320000) (7206,647) Label "3",
+  (320000,330000) (7251,4580) Label "4"
+  CoordSys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+  Units "m"
+  Width 9000 Height 6000
+  Resolution 500, 500
+  Button 1, 2
+  Mode Off
