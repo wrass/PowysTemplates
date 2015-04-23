@@ -1,0 +1,2366 @@
+' ================================================================================
+' Templates
+' Module for Mapinfo version 10.5+ templates
+' 
+' Version: 1.7 Beta
+' Author: Ti Marner, Sr. Systems Support Officer, Powys County Council
+' Author: John Phillips, GIS Technician, Powys County Council
+' Author: Ceri Morrey, GIS Technician, Powys County Council
+' Email: gis@powys.gov.uk
+' ================================================================================
+' WARNING: Check DEBUG value before deployment
+' ================================================================================
+' Initial Setup
+' ================================================================================
+Include "mapbasic.def"
+Include "icons.def"
+Include "menu.def"
+
+' declares
+Declare Sub Main
+Declare Sub OpenTemplate
+Declare Sub SelectLargestMapFrame
+Declare Sub ToggleGrid
+Declare Sub ToggleScaleBar
+Declare Sub DrawGridObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+Declare Sub DrawScaleBarObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+Declare Sub DrawCopyrightObjects
+Declare Sub UpdateInsetFrames
+Declare Sub TemplateOptions
+Declare Sub TemplateHelp
+Declare Sub CloseTemplate
+Declare Sub OpenAdminToolbar
+Declare Sub CloseAdminToolbar
+Declare Sub AdminPublishing
+Declare Sub AdminPublishTemplate
+Declare Sub AdminUnPublishTemplate
+Declare Sub AdminSaveTemplate
+Declare Sub UpdateSaveTemplateDlg
+Declare Sub AdminOpenTemplate
+Declare Sub AdminDeleteTemplate
+Declare Sub AboutTemplates
+Declare Sub ExitTemplates
+Declare Sub WinChangedHandler
+Declare Sub WinClosedHandler
+
+Declare Function StructRecordFromID (ByVal i_templateID as Integer) as Integer
+Declare Function TabFileIsOpen (ByVal s_tabname as String) as Logical
+Declare Function RefreshTemplateInfo () as Logical
+Declare Function TemplateAction (ByVal s_path as String, ByVal s_action as String) as Logical
+Declare Function GetUserName Lib "advapi32.dll" Alias "GetUserNameA" (lpBuffer As String, nSize As Integer) As Integer
+Declare Function FindExecutable Lib "shell32.dll" Alias "FindExecutableA" (lpFile As String, lpDirectory As String, lpResult as String) As Integer
+Declare Function CopyFile Lib "kernel32" Alias "CopyFileA" (ByVal lpExistingFileName as String, ByVal lpNewFileName as String, ByVal bFailIfExists as Logical) as Integer
+
+' template type
+Type TEMPLATE
+	id as Integer
+	name as String
+	path as String
+	published as Logical
+	inset1_enabled as Logical
+	inset1_rowid as Integer
+	inset1_sync as Logical
+	inset1_objs as Logical
+	inset2_enabled as Logical
+	inset2_rowid as Integer
+	inset2_sync as Logical
+	inset2_objs as Logical
+End Type
+
+' module level variables
+Dim Mi_chosenMapperID as Integer			' ID of the mapper chosen by the user to create a layout from
+Dim Mi_layoutWindowID as Integer			' ID of the layout window created by this program
+Dim Ml_drawGridLines as Logical				' whether grid lines are drawn in addition to labels on layout
+Dim Mp_gridLineStyle as Pen					' pen style for grid lines
+Dim Mi_gridLabelFormat as Integer			' choice 1-3 for grid label style on layout
+Dim Mf_gridLabelFont as Font				' font style for grid labels
+Dim Mi_scaleBarPosition as Integer			' choice 1-2 for position of scale bar on layout
+Dim Mi_scaleBarStyle as Integer				' choice 1-2 for style of scalebar in layout
+Dim Mi_scaleBarUnits as Integer				' choice 1-2 for units on scalebar in layout
+Dim Ms_arr_splitStringArray(), Ms_adminPwd, Ms_iconsFilePath, Ms_definitionsFilePath, Ms_arr_openTableStatements(), Ms_arr_tablesToClose() as String
+Dim Mi_copyrightObjsMin, Mi_copyrightObjsMax, Mi_gridObjsMin, Mi_gridObjsMax, Mi_scalebarObjsMin, Mi_scalebarObjsMax, Mi_newTemplateWindowID, Mi_arr_windowsToClose() as Integer
+Dim Ml_gridButtonStatus, Ml_scaleButtonStatus as SmallInt
+Dim M_ARR_TEMPLATE_STRUCT() as TEMPLATE
+Dim Mi_openTemplateID as Integer
+Dim Ms_arr_publishedNames(), Ms_arr_unPublishedNames() as String
+Dim Mi_arr_publishedIndex(), Mi_arr_unPublishedIndex() as Integer
+
+Define		DEBUG		TRUE
+' ================================================================================
+
+' Main subroutine - creates the Templates toolbar
+' ================================================================================
+Sub Main
+	If DEBUG Then
+		CLS
+		Print "---------------------- TemplateOptions --->"
+	End If
+
+	' intialise variables
+	Randomize
+	Ms_definitionsFilePath = ApplicationDirectory$() & "template_definitions.cfg"
+	Ms_iconsFilePath = ApplicationDirectory$() & "toolicons.dll"
+	Ms_adminPwd = Chr$(103) & Chr$(49) & Chr$(115)				' admin password
+	Ml_drawGridLines = TRUE										' set default gridlines on
+	Mp_gridLineStyle = MakePen(1,2,10526880)					' set default grid line style
+	Mi_gridLabelFormat = 1										' set default grid label style to full six figure
+	Mf_gridLabelFont = MakeFont("Arial",0,8,Black,-1)			' set default grid label font
+	Mi_scaleBarPosition = 2										' set default scalebar position to lower right
+	Mi_scaleBarStyle = 1										' set default scalebar style to tick-bar
+	Mi_scaleBarUnits = 1										' set default scalebar units to metres / kilometres
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		Note "Error in " & ApplicationName$() & " [Main]: Could not find template definitions file! Please contact Corporate GIS."
+		End Program
+	End If
+	' check for toolbar icons DLL
+	If NOT FileExists(Ms_iconsFilePath) Then
+		Note "Error in " & ApplicationName$() & " [Main]: Could not find toolbar icons! Please contact Corporate GIS."
+		End Program
+	End If
+	If DEBUG Then Print "PROGRAM ENVIRONMENT OK" End If
+	
+	' create templates toolbar
+	Create ButtonPad "Templates" As 
+		PushButton 
+			Calling OpenTemplate
+			Icon 1 File Ms_iconsFilePath
+			HelpMsg "\nCreate New Layout"
+			ID 5001
+		PushButton 
+			Calling CloseTemplate
+			Icon 3 File Ms_iconsFilePath
+			HelpMsg "\nClose Layout"
+			ID 5002
+		ToggleButton 
+			Calling ToggleGrid
+			Icon 5 File Ms_iconsFilePath
+			HelpMsg "\nToggle Grid On/Off"
+			ID 5003
+		ToggleButton 
+			Calling ToggleScaleBar
+			Icon MI_ICON_MAPSYMB_3
+			HelpMsg "\nToggle Scalebar On/Off"
+			ID 5004
+		PushButton 
+			Calling TemplateOptions
+			Icon 7 File Ms_iconsFilePath
+			HelpMsg "\nOptions"
+			ID 5005
+		PushButton
+			Calling TemplateHelp
+			Icon 9 File Ms_iconsFilePath
+			HelpMsg "\nTemplates Help"
+			ID 5006
+		PushButton
+			Calling OpenAdminToolbar
+			Icon 11 File Ms_iconsFilePath
+			HelpMsg "\nOpen Template Administration"
+			ID 5007
+		Title "Templates" 
+		Width 7
+		ToolbarPosition (0,20)
+		Fixed
+		Show
+	
+	' create templates menu
+	Create Menu "Powys Templates" ID 942 As
+		"Create New Layout..." Calling OpenTemplate,
+		"Powys Templates Help Topics..." Calling TemplateHelp,
+		"(-",
+		"About Powys Templates..." Calling AboutTemplates,
+		"Exit Powys Templates" Calling ExitTemplates
+	
+	Alter Menu "Tools" Add
+		"Powys Templates" As "Powys Templates"
+	
+	' set toggle status
+	Ml_gridButtonStatus = 0
+	Ml_scaleButtonStatus = 0
+	
+	' enable / disable toolbar buttons
+	Alter ButtonPad "Templates" Fixed		'ToolbarPosition(0,4)
+	Alter Button ID 5002 Disable			' close layout
+	Alter Button ID 5003 Disable			' toggle grid
+	Alter Button ID 5004 Disable			' toggle scalebar
+	
+End Sub
+' ================================================================================
+
+' TemplateOptions - Presents the template options dialog
+' ================================================================================
+Sub TemplateOptions
+	If DEBUG Then Print "---------------------- TemplateOptions --->" End If
+	
+	Dim l_drawGridLines as Logical
+	Dim i_gridLabelFormat, i_scaleBarPosition, i_scaleBarStyle, i_scaleBarUnits as Integer
+	Dim p_gridLineStyle as Pen
+	Dim f_gridLabelFont as Font
+	
+	' get options from globals
+	l_drawGridLines = Ml_drawGridLines
+	i_gridLabelFormat = Mi_gridLabelFormat
+	i_scaleBarPosition = Mi_scaleBarPosition
+	i_scaleBarStyle = Mi_scaleBarStyle
+	i_scaleBarUnits = Mi_scaleBarUnits
+	p_gridLineStyle = Mp_gridLineStyle
+	f_gridLabelFont = Mf_gridLabelFont
+	
+	' present template options dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Options"
+		Control GroupBox
+			Title "Grid Options"
+			Position 4,6
+			Width 270 Height 80
+		Control StaticText
+			Title "Grid Lines On/Off"
+			Position 12,20
+		Control CheckBox
+			Value l_drawGridLines
+			Into l_drawGridLines
+			Position 80,20
+		Control StaticText
+			Title "Grid Label Format"
+			Position 12,36
+		Control RadioGroup
+			Title "Full Grid References;OS Style References;Definitive Map Style"
+			Value i_gridLabelFormat
+			Into i_gridLabelFormat
+			Position 80,36
+		Control StaticText
+			Title "Line Style"
+			Position 180,26
+		Control PenPicker
+			Value p_gridLineStyle
+			Into p_gridLineStyle
+			Position 186,40
+		Control StaticText
+			Title "Label Style"
+			Position 230,26
+		Control FontPicker
+			Value f_gridLabelFont
+			Into f_gridLabelFont
+			Position 238,40
+		Control GroupBox
+			Title "ScaleBar Options"
+			Position 4,90
+			Width 270 Height 60
+		Control StaticText
+			Title "Scalebar Position"
+			Position 12,104
+		Control RadioGroup
+			Title "Lower Left;Lower Right"
+			Value i_scaleBarPosition
+			Into i_scaleBarPosition
+			Position 12,116
+		Control StaticText
+			Title "Scalebar Style"
+			Position 100,104
+		Control RadioGroup
+			Title "Tick-Bar;Solid Block"
+			Value i_scaleBarStyle
+			Into i_scaleBarStyle
+			Position 100,116
+		' Control StaticText
+			' Title "Scalebar Units"
+			' Position 188,104
+		' Control RadioGroup
+			' Title "Metres/Kilometres;Yards/Miles"
+			' Value i_scaleBarUnits
+			' Into i_scaleBarUnits
+			' Position 188,116
+		Control OKButton
+		Control CancelButton
+	
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		' write options back to globals
+		Ml_drawGridLines = l_drawGridLines
+		Mi_gridLabelFormat = i_gridLabelFormat
+		Mi_scaleBarPosition = i_scaleBarPosition
+		Mi_scaleBarStyle = i_scaleBarStyle
+		Mi_scaleBarUnits = i_scaleBarUnits
+		Mp_gridLineStyle = p_gridLineStyle
+		Mf_gridLabelFont = f_gridLabelFont
+		If DEBUG Then Print "Options set" End If
+		
+		Call WinChangedHandler
+		If DEBUG Then Print "<--- returning to TemplateOptions" End If
+	End If
+	
+End Sub
+' ================================================================================
+
+' OpenTemplate - Opens a published template
+' ================================================================================
+Sub OpenTemplate
+	If DEBUG Then Print "---------------------- OpenTemplate --->" End If
+	
+	' local variables
+	Dim i, j, i_index, i_bound, i_MapNum, i_TemplateNum, i_scaleNo, i_arr_mapScales(), i_theRowNumber as Integer
+	Dim f_mapCentreX, f_mapCentreY, f_mapScale, f_mapWidth, f_mapperAspectRatio, f_frameAspectRatio as Float
+	Dim f_mapMaxX, f_mapMaxY, f_mapMinX, f_mapMinY, f_frameScale, f_frameMaxX, f_frameMinX as Float
+	Dim s_arr_mapperNames(), s_arr_publishedNames(), s_UserName, s_LayoutTitle, s_RefNo, s_layoutTableName, s_tableOpen, s_templateToOpen, s_time as String
+	Dim i_startChar, i_endChar, i_arr_publishedIDs(), i_structRecord as Integer
+	Dim s_tempWorkspace, s_fileInput as String
+	Dim f_font as Font
+	Dim a_theRowNumber, a_theObject as Alias
+	Dim l_flag as Logical
+	Dim o_theObject as Object
+	Dim d_date as Date
+	
+	' set coordinate system and units
+	Set CoordSys Earth Projection 8, 79, "m",-2,49, 0.9996012717, 400000,-100000
+	Set Distance Units "km"
+	Set Paper Units "cm"
+	
+	' variable init
+	ReDim i_arr_mapScales(10)
+	i_arr_mapScales(1) = 1250
+	i_arr_mapScales(2) = 2500
+	i_arr_mapScales(3) = 5000
+	i_arr_mapScales(4) = 10000
+	i_arr_mapScales(5) = 25000
+	i_arr_mapScales(6) = 50000
+	i_arr_mapScales(7) = 100000
+	i_arr_mapScales(8) = 250000
+	i_arr_mapScales(9) = 500000
+	i_arr_mapScales(10) = 1000000
+	
+	' get username from Win API
+	dim s_Buffer As String
+	dim x, i_BuffSize as Integer
+	i_BuffSize = 1024
+	s_Buffer = string$(i_BuffSize, chr$(32))
+	x = GetUserName(s_Buffer, i_BuffSize)
+	s_UserName = s_Buffer
+	
+	' refresh template information
+	If Not RefreshTemplateInfo() Then
+		Note "No templates on file"
+		Exit Sub
+	End If
+
+	' check for unsaved edits
+	If NumTables() > 1 Then
+		For i = 1 to NumTables()
+			If TableInfo(i, TAB_INFO_EDITED) Then
+				Note "You have unsaved changes, please save or revert any edited tables before creating a layout."
+				Exit Sub
+			End If
+		Next
+	End If
+	
+	' ensure that we have a window to create a layout from
+	If NumWindows() > 0 Then
+		j = 0
+		For i = 1 to NumWindows()
+			' get all currently open mapper names
+			If WindowInfo(i,WIN_INFO_TYPE) = WIN_MAPPER Then
+				j = j + 1
+				ReDim s_arr_mapperNames(j)
+				s_arr_mapperNames(j) = WindowInfo(i,WIN_INFO_NAME)
+			End If
+		Next
+	Else
+		Note "No windows open, please open a map window first."
+		Exit Sub
+	End If
+	' ensure that we have a mapper window to create a layout from
+	If UBound(s_arr_mapperNames) = 0 Then
+		Note "No maps open, please open a map window first."
+		Exit Sub
+	End If
+	
+	openTemplateDlg:
+	' present template creation dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "New Layout from Template"
+		Control StaticText
+			Position 4,10
+			Title "Choose Mapper: "
+		Control PopupMenu
+			Position 70,8
+			Title From Variable s_arr_mapperNames
+			Into i_MapNum
+		Control StaticText
+			Title "Choose Template: "
+			Position 4,26
+		Control PopupMenu
+			Title From Variable Ms_arr_publishedNames
+			Into i_TemplateNum
+			Position 70,24
+		Control StaticText
+			Title "Map Scale: "
+			Position 4,42
+		Control PopUpMenu
+			Title "Fit to Extents;Keep Current Scale;1:1,250;1:2,500;1:5,000;1:10,000;1:25,000;1:50,000;1:100,000;1:250,000;1:500,000;1:1,000,000"
+			into i_scaleNo
+			Position 70,40
+		Control StaticText
+			Title "Layout Title: "
+			Position 4,58
+		Control EditText
+			Into s_LayoutTitle
+			Position 70,56
+			Width 180
+		Control StaticText
+			Title "Ref No: "
+			Position 4,74
+		Control EditText
+			Into s_RefNo
+			Position 70,72
+			Width 180
+		Control StaticText
+			Title "Username: "
+			Position 4,90
+		Control EditText
+			Value s_UserName
+			Into s_UserName
+			Position 70,88
+			Width 180
+		Control OKButton
+		Control CancelButton
+	
+	' OK button clicked on the dialog, proceed
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		If DEBUG Then Print "Chosen mapper is titled: " & s_arr_mapperNames(i_MapNum) End If
+		
+		' get template index number
+		i_index = Mi_arr_publishedIndex(i_TemplateNum)
+		
+		' get mapper window attributes
+		Mi_chosenMapperID = WindowID(i_MapNum)
+		f_mapCentreX = MapperInfo(Mi_chosenMapperID,MAPPER_INFO_CENTERX)
+		f_mapCentreY = MapperInfo(Mi_chosenMapperID,MAPPER_INFO_CENTERY)
+		f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+		f_mapMaxY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY)
+		f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+		f_mapMinY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+		f_mapScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE)
+		If DEBUG Then Print "Map centreX/centreY/maxX/maxY/minX/minY: " & f_mapCentreX & "/" & f_mapCentreY & "/" & f_mapMaxX & "/" & f_mapMaxY & "/" & f_mapMinX & "/" & f_mapMinY End If
+		
+		' format chosen template path
+		s_templateToOpen = ApplicationDirectory$() & M_ARR_TEMPLATE_STRUCT(i_index).path
+		If DEBUG Then Print "Template to be opened: " & s_templateToOpen End If
+		
+		' open the chosen template
+		If FileExists(s_templateToOpen) Then
+			' process the chosen template workspace before opening it
+			s_tempWorkspace = PathToDirectory$(TempFileName$("")) & "temporaryWorkspace.wor"
+			If DEBUG Then Print "Rewriting workspace into: " & s_tempWorkspace End If
+			Open File s_templateToOpen For Input as #1
+			Open File s_tempWorkspace For Output as #2
+			Line Input #1, s_fileInput
+			ReDim Ms_arr_openTableStatements(0)
+			Do While Not EOF(1)
+				' push all 'Open Table' statements into an array
+				If Left$(s_fileInput, 12) = "Open Table """ Then
+					i_startChar = InStr(1, s_fileInput, "As ") + 3
+					i_endChar = InStr(i_startChar, s_fileInput, " Interactive")
+					' only collect statement if the table referenced by it is not already open
+					If NOT TabFileIsOpen(Mid$(s_fileInput, i_startChar, i_endChar - i_startChar)) Then
+						i_bound = UBound(Ms_arr_openTableStatements) + 1
+						ReDim Ms_arr_openTableStatements(i_bound)
+						Ms_arr_openTableStatements(i_bound) = s_fileInput
+						If DEBUG Then Print "Queued statement: " & Ms_arr_openTableStatements(i_bound) End If
+					End If
+				Else
+					Print #2, s_fileInput
+				End If
+				Line Input #1, s_fileInput
+			Loop
+			Close File #1
+			Close File #2
+			
+			' open template tables into Mapinfo
+			Set Handler WinChangedHandler Off
+			For i = 1 to UBound(Ms_arr_openTableStatements)
+				Run Command Ms_arr_openTableStatements(i)
+			Next
+			' open template workspace
+			Run Application s_tempWorkspace
+			Set Handler WinChangedHandler On
+			' grab layout window ID
+			If WindowInfo(FrontWindow(),WIN_INFO_TYPE) = WIN_LAYOUT Then
+				Mi_layoutWindowID = WindowID(FrontWindow())
+			End If
+			
+			' check that the template opened ok. if not, we have a major problem
+			If Mi_layoutWindowID = 0 Then
+				Note "Error in " & ApplicationName$() & " [OpenTemplate]: Error getting layout ID!  Please contact Corporate GIS."
+				Exit Sub
+			End If
+		Else
+			Note "Error in " & ApplicationName$() & " [OpenTemplate]: Could not find the chosen template!  Please contact Corporate GIS."
+			Exit Sub
+		End If
+		Mi_openTemplateID = M_ARR_TEMPLATE_STRUCT(i_index).id
+		If DEBUG Then Print s_templateToOpen & " opened successfully" End If
+		
+		' note table names that have been opened by the template
+		ReDim Ms_arr_tablesToClose(0)
+		For i = 1 to UBound(Ms_arr_openTableStatements)
+			i_startChar = InStr(1, Ms_arr_openTableStatements(i), "As ") + 3
+			i_endChar = InStr(i_startChar, Ms_arr_openTableStatements(i), " Interactive")
+			ReDim Ms_arr_tablesToClose(i)
+			Ms_arr_tablesToClose(i) = Mid$(Ms_arr_openTableStatements(i), i_startChar, i_endChar - i_startChar)
+		Next
+		
+		' note map window IDs that have been opened by the template
+		ReDim Mi_arr_windowsToClose(0)
+		For i = 1 to NumWindows()
+			If WindowInfo(i,WIN_INFO_TYPE) = WIN_MAPPER Then
+				l_flag = FALSE
+				For j = 1 to UBound(s_arr_mapperNames)
+					If WindowInfo(i,WIN_INFO_NAME) = s_arr_mapperNames(j) Then l_flag = TRUE End If
+				Next
+				If Not l_flag Then
+					i_bound = UBound(Mi_arr_windowsToClose) + 1
+					ReDim Mi_arr_windowsToClose(i_bound)
+					Mi_arr_windowsToClose(i_bound) = WindowID(i)
+				End If
+			End If
+		Next
+		
+		' make sure the layout measurements are in inches
+		Set CoordSys Layout Units "in"
+		' set layout window name
+		Set Window Mi_layoutWindowID Title M_ARR_TEMPLATE_STRUCT(i_index).name
+		
+		' update layout objects
+		Set Handler WinChangedHandler Off
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		If DEBUG Then Print "Setting up objects in table: " & s_layoutTableName End If
+		a_theObject = s_layoutTableName & ".obj"
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		Fetch First from s_layoutTableName
+		Do While Not EOT(s_layoutTableName)
+			i_theRowNumber = a_theRowNumber
+			o_theObject = a_theObject
+			' replace empty map frames with the mapper chosen by the user
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				If ObjectInfo(o_theObject, OBJ_INFO_FRAMEWIN) = 0 Then
+					Alter Object o_theObject Info OBJ_INFO_FRAMEWIN, Mi_chosenMapperID
+					Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+				End If
+			End If
+			' replace variable text objects with their respective strings
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_TEXT Then
+				Do Case ObjectInfo(o_theObject, OBJ_INFO_TEXTSTRING)
+					Case "%title%"
+						If s_LayoutTitle = "" Then
+							Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, " "
+						Else
+							Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, s_LayoutTitle
+						End If
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+					Case "%ref_no%"
+						If s_RefNo = "" Then
+							Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, "N/A"
+						Else
+							Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, s_RefNo
+						End If
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+					Case "%username%"
+						Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, s_UserName
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+					Case "%date%"
+						d_date = CurDate()
+						Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, Format$(Day(d_date), "00") & "/" & Format$(Month(d_date), "00") & "/" & Format$(Year(d_date), "0000")
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+					Case "%time%"
+						s_time = Time(24)
+						Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, s_time
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+				End Case
+			End If
+			Fetch Next from s_layoutTableName
+		Loop
+		Set Handler WinChangedHandler On
+		
+		' select the largest map frame in the layout
+		Call SelectLargestMapFrame
+		If DEBUG Then Print "<--- returning to OpenTemplate" End If
+		' set the map scale for this frame to the scale chosen by the user
+		Set Distance Units "km"
+		Set CoordSys Layout Units "cm"
+		Set Paper Units "cm"
+		f_mapperAspectRatio = (f_mapMaxX - f_mapMinX) / (f_mapMaxY - f_mapMinY)
+		f_frameMaxX = ObjectGeography(Selection.obj, OBJ_GEO_MAXX)
+		f_frameMinX = ObjectGeography(Selection.obj, OBJ_GEO_MINX)
+		If DEBUG Then Print "FrameMaxX / FrameMinX: " & f_frameMaxX & "/" & f_frameMinX End If
+		f_frameAspectRatio = (f_frameMaxX - f_frameMinX) / (ObjectGeography(Selection.obj, OBJ_GEO_MAXY) - ObjectGeography(Selection.obj, OBJ_GEO_MINY))
+		If DEBUG Then Print "Mapper zoom: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) End If
+		If DEBUG Then Print "Mapper scale: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE) End If
+		If DEBUG Then Print "Map width/height/aspect ratio: " & (f_mapMaxX - f_mapMinX) & "/" & (f_mapMaxY - f_mapMinY) & "/" & f_mapperAspectRatio End If
+		If DEBUG Then Print "Frame width/height/aspect ratio: " & (f_frameMaxX - f_frameMinX) & "/" & (ObjectGeography(Selection.obj, OBJ_GEO_MAXY) - ObjectGeography(Selection.obj, OBJ_GEO_MINY)) & "/" & f_frameAspectRatio End If
+		If i_scaleNo = 1 Then
+			' Fit to Layout has been chosen by the user
+			If DEBUG Then Print "(f_mapperAspectRatio / f_frameAspectRatio): " & (f_mapperAspectRatio / f_frameAspectRatio) End If
+			' compare aspect ratios of mapper and frame
+			If f_mapperAspectRatio < f_frameAspectRatio Then
+				If DEBUG Then Print "Mapper is tall and narrow compared to frame, fitting height" End If
+				f_mapScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE) / (f_mapperAspectRatio / f_frameAspectRatio)
+				Set Map Window Mi_chosenMapperID Scale 1 Units "cm" For (f_mapScale) Units "km"
+			Else
+				If DEBUG Then Print "Mapper is short and wide compared to frame, fitting width" End If
+			End If
+		ElseIf i_scaleNo = 2 Then
+			' Keep Current Scale has been chosen by the user
+			Set Map Window Mi_chosenMapperID Scale 1 Units "cm" For (f_mapScale) Units "km"
+		Else
+			' use the corresponding scale from the dialog
+			If DEBUG Then Print "Setting frame scale 1:" & i_arr_mapScales(i_scaleNo - 2) End If
+			f_mapWidth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM)									' map width in km
+			f_mapScale = i_arr_mapScales(i_scaleNo - 2) / 100000											' map scale in km
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+			f_mapWidth = f_mapWidth / (f_frameScale / f_mapScale)											' map width adjusted by relationship between map and frame scales
+			Set Map Window Mi_chosenMapperID Zoom f_mapWidth Units "km"
+			If DEBUG Then Print "Mapper scale: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE) End If
+		End If
+		' deselect the map frame
+		Run Menu Command M_QUERY_UNSELECT
+		
+		' add copyright statements to the layout
+		Call DrawCopyrightObjects
+		If DEBUG Then Print "<--- returning to OpenTemplate" End If
+		
+		' update any inset map frames
+		Call UpdateInsetFrames
+		If DEBUG Then Print "<--- returning to OpenTemplate" End If
+		
+		' remove close button from window to ensure the user uses the powys toolbar
+		Set Window FrontWindow( ) SysMenuClose Off
+		
+		If DEBUG Then Print "OpenTemplate complete, layout has ID " & Mi_layoutWindowID End If
+		
+		' enable / disable toolbar buttons
+		Alter Button ID 5001 Disable			' create layout
+		Alter Button ID 5002 Enable				' close layout
+		Alter Button ID 5003 Enable				' toggle grid
+		Alter Button ID 5004 Enable				' toggle scalebar
+		
+	Else
+		If DEBUG Then Print "User cancelled out of dialog" End If
+	End If
+	
+End Sub
+' ================================================================================
+
+' TabFileIsOpen - Returns TRUE if the tab file is open in Mapinfo, FALSE if not
+' ================================================================================
+Function TabFileIsOpen (ByVal s_tabname as String) as Logical
+	If DEBUG Then Print "---------------------- TabFileIsOpen --->" End If
+	
+	Dim i as Integer
+	Dim l_flag as Logical
+	
+	l_flag = FALSE
+	For i = 1 to NumTables()
+		If TableInfo(i, TAB_INFO_NAME) = s_tabname Then
+			l_flag = TRUE
+		End If
+	Next
+	TabFileIsOpen = l_flag
+	
+End Function
+' ================================================================================
+
+' ToggleGrid - Displays or hides a grid on the template
+' ================================================================================
+Sub ToggleGrid
+	If DEBUG Then Print "---------------------- ToggleGrid --->" End If
+	
+	' toggle grid button status
+	Ml_gridButtonStatus = 1 - Ml_gridButtonStatus
+	
+	If Ml_gridButtonStatus = 1 Then
+		' button has been pressed in, add a grid
+		Call DrawGridObjects (FALSE, TRUE)
+		If DEBUG Then Print "<--- returning to ToggleGrid" End If
+		' ensure grid toggle button is checked
+		Alter Button ID 5003 Check
+	Else
+		' button has been pulled out, clear the grid
+		Call DrawGridObjects (TRUE, FALSE)
+		If DEBUG Then Print "<--- returning to ToggleGrid" End If
+		' ensure grid toggle button is unchecked
+		Alter Button ID 5003 Uncheck
+	End If
+
+End Sub
+' ================================================================================
+
+' DrawGridObjects - Clears / Draws grid objects on the largest frame on the layout
+' ================================================================================
+Sub DrawGridObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+	If DEBUG Then Print "---------------------- DrawGridObjects --->" End If
+	
+	' vars
+	Dim a_theRowNumber as Alias
+	Dim s_layoutTableName as String
+	Dim f_mapperWidth_earth, f_mapperHeight_earth As Float
+	Dim f_frameLeftEdge_paper, f_frameTopEdge_paper, f_frameRightEdge_paper, f_frameBottomEdge_paper, f_frameWidth_paper, f_frameHeight_paper as Float
+	Dim f_frameLeftEdge_earth, f_frameBottomEdge_earth, f_frameRightEdge_earth, f_frameTopEdge_earth, f_frameWidth_earth, f_frameHeight_earth As Float
+	Dim f_frameScale, f_halfFrameWidth_earth, f_halfFrameHeight_earth As Float
+	Dim f_startDifferenceX, f_startDifferenceY, f_endDifferenceX, f_endDifferenceY As Float
+	Dim f_layoutStartDifferenceX, f_layoutStartDifferenceY, f_layoutEndDifferenceX, f_layoutEndDifferenceY As Float
+	Dim f_gridStartX_earth, f_gridStartY_earth, f_gridEndX_earth, f_gridEndY_earth As Float
+	Dim f_gridStartX_paper, f_gridStartY_paper, f_gridEndX_paper, f_gridEndY_paper as Float
+	Dim f_gridSpacingX_paper, f_gridSpacingY_paper, f_gridSize_earth As Float
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		' get the layout table name
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		
+		If l_clear Then
+			Set Handler WinChangedHandler Off
+			
+			' check to see if a grid has been created
+			If Mi_gridObjsMax > Mi_gridObjsMin Then
+				' remove grid objects
+				Select * From s_layoutTableName Where rowid > Mi_gridObjsMin AND rowid <= Mi_gridObjsMax
+				If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+					If DEBUG Then Print "Deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME) End If
+					Delete From SelectionInfo(SEL_INFO_SELNAME)
+				End If
+				' reset grid object tracking
+				Mi_gridObjsMin = 0
+				Mi_gridObjsMax = 0
+			End If
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+		If l_draw Then
+			Set Handler WinChangedHandler Off
+			
+			a_theRowNumber = s_layoutTableName & ".rowid"
+			' track grid objects
+			Fetch Last From s_layoutTableName
+			Mi_gridObjsMin = a_theRowNumber
+			If DEBUG Then Print "grid start row: " & Mi_gridObjsMin End If
+			
+			' select frame to draw the grid onto
+			Call SelectLargestMapFrame
+			If DEBUG Then Print "<--- returning to DrawGridObjects" End If
+			
+			'Return width and height of mapper
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_mapperWidth_earth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX) - MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+			f_mapperHeight_earth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY) - MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+			If DEBUG Then Print "f_mapperWidth_earth = " & f_mapperWidth_earth & "m" End If
+			If DEBUG Then Print "f_mapperHeight_earth = " & f_mapperHeight_earth & "m" End If
+			
+			'Return the minimum and maximum coordinates and width and height of the selected frame in the layout
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			f_frameLeftEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MINX)
+			f_frameRightEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MAXX)
+			f_frameTopEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MINY)
+			f_frameBottomEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MAXY)
+			f_frameWidth_paper = f_frameRightEdge_paper - f_frameLeftEdge_paper
+			f_frameHeight_paper = f_frameBottomEdge_paper - f_frameTopEdge_paper
+			If DEBUG Then Print "f_frameLeftEdge_paper / f_frameRightEdge_paper / f_frameTopEdge_paper / f_frameBottomEdge_paper / f_frameWidth_paper / f_frameHeight_paper" End If
+			If DEBUG Then Print f_frameLeftEdge_paper & "cm / " & f_frameRightEdge_paper & "cm / " & f_frameTopEdge_paper & "cm / " & f_frameBottomEdge_paper & "cm / " & f_frameWidth_paper & "cm / " & f_frameHeight_paper & "cm" End If
+			
+			'Find the scale of the layout window
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameWidth_paper
+			If DEBUG Then Print "f_frameScale = " & f_frameScale End If
+			
+			'Calculate layout distance in ground units
+			f_halfFrameWidth_earth = (f_frameScale * f_frameWidth_paper / 2) / 100
+			f_halfFrameHeight_earth = (f_frameScale * f_frameHeight_paper / 2) / 100
+			If DEBUG Then Print "f_halfFrameWidth_earth = " & f_halfFrameWidth_earth & "m" End If
+			If DEBUG Then Print "f_halfFrameHeight_earth = " & f_halfFrameHeight_earth & "m" End If
+			
+			'Workout the layout map extents in ground units
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_frameLeftEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX) - f_halfFrameWidth_earth)
+			f_frameRightEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX) + f_halfFrameWidth_earth)
+			f_frameTopEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY) + f_halfFrameHeight_earth)
+			f_frameBottomEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY) - f_halfFrameHeight_earth)
+			f_frameWidth_earth = f_frameRightEdge_earth - f_frameLeftEdge_earth
+			f_frameHeight_earth = f_frameTopEdge_earth - f_frameBottomEdge_earth
+			If DEBUG Then Print "f_frameLeftEdge_earth / f_frameRightEdge_earth / f_frameBottomEdge_earth / f_frameTopEdge_earth / f_frameWidth_earth / f_frameHeight_earth" End If
+			If DEBUG Then Print f_frameLeftEdge_earth & "m / " & f_frameRightEdge_earth & "m / " & f_frameBottomEdge_earth & "m / " & f_frameTopEdge_earth & "m / " & f_frameWidth_earth & "m / " & f_frameHeight_earth & "m" End If
+			
+			'Calculate best fit for grid size
+			f_gridSize_earth = 100000
+			If f_frameScale > 1000000 AND f_frameScale <= 2000000 Then f_gridSize_earth = 50000
+			ElseIf f_frameScale > 500000 AND f_frameScale <= 1000000 Then f_gridSize_earth = 25000
+			ElseIf f_frameScale > 200000 AND f_frameScale <= 500000 Then f_gridSize_earth = 10000
+			ElseIf f_frameScale > 100000 AND f_frameScale <= 200000 Then f_gridSize_earth = 5000
+			ElseIf f_frameScale > 50000 AND f_frameScale <= 100000 Then f_gridSize_earth = 2500
+			ElseIf f_frameScale > 20000 AND f_frameScale <= 50000 Then f_gridSize_earth = 1000
+			ElseIf f_frameScale > 10000 AND f_frameScale <= 20000 Then f_gridSize_earth = 500
+			ElseIf f_frameScale > 5000 AND f_frameScale <= 10000 Then f_gridSize_earth = 250
+			ElseIf f_frameScale > 2000 AND f_frameScale <= 5000 Then f_gridSize_earth = 100
+			ElseIf f_frameScale > 1000 AND f_frameScale <= 2000 Then f_gridSize_earth = 50
+			ElseIf f_frameScale <= 1000 Then f_gridSize_earth = 20
+			End if
+			' do not draw a grid if zoomed in too close
+			If f_frameScale <= 100 Then
+				Set Handler WinChangedHandler On
+				Exit Sub
+			End If
+			If DEBUG Then Print "Grid Size = " + f_gridSize_earth & "m" End If
+			
+			' calculate extents for grid in metres
+			f_gridStartX_earth = Round(f_frameLeftEdge_earth, f_gridSize_earth)
+			f_gridEndX_earth = Round(f_frameRightEdge_earth, f_gridSize_earth)
+			f_gridStartY_earth = Round(f_frameTopEdge_earth, f_gridSize_earth)
+			f_gridEndY_earth = Round(f_frameBottomEdge_earth, f_gridSize_earth)
+			' tweak grid extents if outside frame extents
+			If f_gridStartX_earth <= f_frameLeftEdge_earth Then f_gridStartX_earth = f_gridStartX_earth + f_gridSize_earth End if
+			If f_gridEndX_earth >= f_frameRightEdge_earth Then f_gridEndX_earth = f_gridEndX_earth - f_gridSize_earth End if
+			If f_gridStartY_earth >= f_frameTopEdge_earth Then f_gridStartY_earth = f_gridStartY_earth - f_gridSize_earth End if
+			If f_gridEndY_earth <= f_frameBottomEdge_earth Then f_gridEndY_earth = f_gridEndY_earth + f_gridSize_earth End if
+			If DEBUG Then Print "f_gridStartX_earth / f_gridStartY_earth / f_gridEndX_earth / f_gridEndY_earth" End If
+			If DEBUG Then Print f_gridStartX_earth & "m /" & f_gridStartY_earth & "m /" & f_gridEndX_earth & "m /" & f_gridEndY_earth & "m" End If
+			
+			'Calculate positions of labels and lines in layout units
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"			
+			f_gridStartX_paper = (f_gridStartX_earth - f_frameLeftEdge_earth) * 100 / f_frameScale + f_frameLeftEdge_paper
+			f_gridEndX_paper = f_frameRightEdge_paper - ((f_frameRightEdge_earth - f_gridEndX_earth) * 100 / f_frameScale)
+			f_gridStartY_paper = (f_frameTopEdge_earth - f_gridStartY_earth) * 100 / f_frameScale + f_frameTopEdge_paper ' (297377.72m - 297000m) * 100 / 49998.65 + 1.50107cm = 2.2565cm
+			f_gridEndY_paper = f_frameBottomEdge_paper - ((f_gridEndY_earth - f_frameBottomEdge_earth) * 100 / f_frameScale) ' 24.5727cm - ((286000m - 285842.2m) * 100 / 49998.65) = 24.2571cm
+
+			If DEBUG Then Print "f_gridStartX_paper / f_gridEndX_paper / f_gridStartY_paper / f_gridEndY_paper" End If
+			If DEBUG Then Print f_gridStartX_paper & "cm /" & f_gridEndX_paper & "cm /" & f_gridStartY_paper & "cm /" & f_gridEndY_paper & "cm" End If
+			
+			'Grid spacing on the layout
+			f_gridSpacingX_paper = (f_gridSize_earth / f_frameWidth_earth) * f_frameWidth_paper
+			f_gridSpacingY_paper = (f_gridSize_earth / f_frameHeight_earth) * f_frameHeight_paper
+			If DEBUG Then Print "GridLaySpaceX = " & f_gridSpacingX_paper End If
+			If DEBUG Then Print "GridLaySpaceY = " & f_gridSpacingY_paper End If
+			
+			' DRAW-GRID-OBJECTS-INTO-LAYOUT------------------------------------
+			Dim f_currentLayoutCoord, f_coordOffset, f_currentMapCoord As Float 
+			Dim i_gridLabelLength, i_firstGridLabelChar as Integer
+			
+			' set length of grid labels
+			If Mi_gridLabelFormat = 1 Then
+				i_gridLabelLength = 6
+				i_firstGridLabelChar = 1
+				f_coordOffset = 0.5
+			ElseIf	Mi_gridLabelFormat = 2 Then
+				i_gridLabelLength = 2
+				i_firstGridLabelChar = 2
+				f_coordOffset = 0.15
+			ElseIf	Mi_gridLabelFormat = 3 Then
+				i_gridLabelLength = 5
+				i_firstGridLabelChar = 2
+				f_coordOffset = 0.4
+			End If
+			
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			
+			' Draw objects on X axis
+			f_currentLayoutCoord = f_gridStartX_paper
+			f_currentMapCoord = f_gridStartX_earth
+			Do While f_currentLayoutCoord <= f_frameRightEdge_paper
+				' at this x value (easting), create a label
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord), i_firstGridLabelChar, i_gridLabelLength)
+					(f_currentLayoutCoord - f_coordOffset, f_frameBottomEdge_paper + 0.1) (1000, 1000)
+					Font Mf_gridLabelFont
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord), i_firstGridLabelChar, i_gridLabelLength)
+					(f_currentLayoutCoord - f_coordOffset, f_frameTopEdge_paper - 0.5) (1000, 1000)
+					Font Mf_gridLabelFont
+				' draw tick marks
+				Create Point Into Window Mi_layoutWindowID (f_currentLayoutCoord, f_frameTopEdge_paper) Symbol (49, Black, 12)
+				Create Point Into Window Mi_layoutWindowID (f_currentLayoutCoord, f_frameBottomEdge_paper - 0.005) Symbol (49, Black, 12)
+				If Ml_drawGridLines Then
+					' draw grid line
+					Create Line Into Window Mi_layoutWindowID 
+						(f_currentLayoutCoord, f_frameTopEdge_paper) (f_currentLayoutCoord, f_frameBottomEdge_paper)
+						Pen Mp_gridLineStyle
+				End If
+				' increment x position
+				f_currentLayoutCoord = f_currentLayoutCoord + f_gridSpacingX_paper
+				f_currentMapCoord = f_currentMapCoord + f_gridSize_earth
+				Update Window Mi_layoutWindowID
+			Loop
+			
+			' Draw objects on Y axis
+			f_currentLayoutCoord = f_gridStartY_paper
+			f_currentMapCoord = f_gridStartY_earth
+			Do While f_currentLayoutCoord <= f_frameBottomEdge_paper 
+				' at this y value (northing), create a label
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord),i_firstGridLabelChar,i_gridLabelLength)
+					(f_frameLeftEdge_paper - 0.5, f_currentLayoutCoord + f_coordOffset) (1000, 1000)
+					Font Mf_gridLabelFont
+					Angle 90
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord),i_firstGridLabelChar,i_gridLabelLength)
+					(f_frameRightEdge_paper + 0.1, f_currentLayoutCoord + f_coordOffset) (1000, 1000)
+					Font Mf_gridLabelFont
+					Angle 90
+				' draw tick marks
+				Create Point Into Window Mi_layoutWindowID (f_frameLeftEdge_paper, f_currentLayoutCoord) Symbol (49, Black, 12) 
+				Create Point Into Window Mi_layoutWindowID (f_frameRightEdge_paper - 0.005, f_currentLayoutCoord) Symbol (49, Black, 12)
+				If Ml_drawGridLines Then
+					' draw grid line
+					Create Line Into Window Mi_layoutWindowID
+						(f_frameLeftEdge_paper, f_currentLayoutCoord) (f_frameRightEdge_paper, f_currentLayoutCoord)
+						Pen Mp_gridLineStyle 
+				End If
+				' increment y position
+				f_currentLayoutCoord = f_currentLayoutCoord + f_gridSpacingY_paper
+				f_currentMapCoord = f_currentMapCoord - f_gridSize_earth
+				Update Window Mi_layoutWindowID
+			Loop
+			
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			
+			' deselect the map frame
+			Run Menu Command M_QUERY_UNSELECT
+
+			' track grid objects
+			Fetch Last From s_layoutTableName
+			Mi_gridObjsMax = a_theRowNumber
+			If DEBUG Then Print "grid end row: " & Mi_gridObjsMax End If
+			
+			Set Handler WinChangedHandler On
+		End If
+	End If
+	
+End Sub
+' ================================================================================
+
+' ToggleScaleBar - Displays or hides the scalebar on the template
+' ================================================================================
+Sub ToggleScaleBar
+	If DEBUG Then Print "---------------------- ToggleScaleBar --->" End If
+	
+	' toggle scalebar button status
+	Ml_scaleButtonStatus = 1 - Ml_scaleButtonStatus
+	
+	If Ml_scaleButtonStatus = 1 Then
+		' button has been pressed in, add a scalebar
+		Call DrawScaleBarObjects (FALSE, TRUE)
+		If DEBUG Then Print "<--- returning to ToggleScaleBar" End If
+		' ensure grid toggle button is checked
+		Alter Button ID 5004 Check
+	Else
+		' button has been pulled out, clear the grid
+		Call DrawScaleBarObjects (TRUE, FALSE)
+		If DEBUG Then Print "<--- returning to ToggleScaleBar" End If
+		' ensure grid toggle button is unchecked
+		Alter Button ID 5004 Uncheck
+	End If
+	
+End Sub
+' ================================================================================
+
+' DrawScaleBarObjects - Clears / Draws scalebar objects on the largest frame on the layout
+' ================================================================================
+Sub DrawScaleBarObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+	If DEBUG Then Print "---------------------- DrawScaleBarObjects --->" End If
+	
+	' vars
+	Dim a_theRowNumber, a_theObject as Alias
+	Dim s_layoutTableName, s_scaleText as String
+	Dim o_theObject as Object
+	Dim f_frameMinX,f_frameMinY,f_frameMaxX,f_frameMaxY,f_frameScale,f_startX, f_startY as Float
+	Dim f_mapMinX, f_mapMaxX, f_endX, f_endY as Float
+	Dim i as Integer
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		' get the layout table name
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		
+		If l_clear Then
+			Set Handler WinChangedHandler Off
+		
+			' check to see if a scalebar has been created
+			If Mi_scalebarObjsMax > Mi_scalebarObjsMin Then
+				' remove grid objects
+				Select * From s_layoutTableName Where rowid > Mi_scalebarObjsMin AND rowid <= Mi_scalebarObjsMax
+				If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+					If DEBUG Then Print "Deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME) End If
+					Delete From SelectionInfo(SEL_INFO_SELNAME)
+				End If
+				' reset grid object tracking
+				Mi_scalebarObjsMin = 0
+				Mi_scalebarObjsMax = 0
+			End If
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+		If l_draw Then
+			Set Handler WinChangedHandler Off
+			
+			' get mapper information
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+			f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+			
+			a_theRowNumber = s_layoutTableName & ".rowid"
+			a_theObject = s_layoutTableName & ".obj"
+			' track scalebar objects
+			Fetch Last From s_layoutTableName
+			Mi_scalebarObjsMin = a_theRowNumber
+			If DEBUG Then Print "scalebar start row: " & Mi_scalebarObjsMin End If
+			
+			' select the largest map frame in the layout
+			Call SelectLargestMapFrame
+			If DEBUG Then Print "<--- returning to DrawScaleBarObjects" End If
+			' get information about the frame and mapper associated with it
+			o_theObject = Selection.col1
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			f_frameMinX = ObjectGeography(o_theObject, OBJ_GEO_MINX)
+			f_frameMinY = ObjectGeography(o_theObject, OBJ_GEO_MINY)
+			f_frameMaxX = ObjectGeography(o_theObject, OBJ_GEO_MAXX)
+			f_frameMaxY = ObjectGeography(o_theObject, OBJ_GEO_MAXY)
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)
+			If DEBUG Then Print "f_frameMinX | f_frameMinY | f_frameMaxX | f_frameMaxY | f_frameScale: " & f_frameMinX & " | " & f_frameMinY & " | " & f_frameMaxX & " | " & f_frameMaxY & " | " & f_frameScale End If
+			' If DEBUG Then Print "(f_mapMaxX-f_mapMaxY) / (f_frameMaxX-f_frameMinX) = " & (f_mapMaxX - f_mapMinX) / (f_frameMaxX - f_frameMinX) End If
+			
+			Dim f_widthInLayout, f_widthInMapper, f_reducedWidth, f_thisDiff, f_prevDiff as Float
+			Dim i_fixedCommonLog, i_valuesList(4), i_closest as Integer
+			
+			' set desired scalebar width to 6 cm
+			f_widthInLayout = 6
+			If DEBUG Then Print "Desired scalebar width set to: " & f_widthInLayout & " cm" End If
+			' work out scalebar width in ground units (cm)
+			f_widthInMapper = f_widthInLayout * f_frameScale
+			If DEBUG Then Print "Scalebar width on ground: " & f_widthInMapper & " cm" End If
+			' round scalebar width
+			i_fixedCommonLog = Fix(Log(f_widthInMapper) / Log(10))
+			If DEBUG Then Print "Common log (fixed) of ground width: " & i_fixedCommonLog End If
+			' reduce ground width to between 0 and 10
+			f_reducedWidth = f_widthInMapper / (10 ^ i_fixedCommonLog)
+			If DEBUG Then Print "Width value reduced to less than 10: " & f_reducedWidth End If
+			
+			' find the closest number to this reduced width from a list of 'nice' values
+			i_valuesList(1) = 1
+			i_valuesList(2) = 2
+			i_valuesList(3) = 5
+			i_valuesList(4) = 10
+			i_closest = 1
+			f_thisDiff = Abs(f_reducedWidth - 1)
+			For i = 2 to UBound(i_valuesList)
+				f_prevDiff = f_thisDiff
+				f_thisDiff = Abs(f_reducedWidth - i_valuesList(i))
+				If f_thisDiff < f_prevDiff Then i_closest = i End If
+			Next
+			If DEBUG Then Print "Closest value in list is: " & i_valuesList(i_closest) End If
+			f_widthInMapper = i_valuesList(i_closest) * (10 ^ i_fixedCommonLog)
+			If DEBUG Then Print "Ground equivalent: " & f_widthInMapper & " cm" End If
+			
+			' convert scalebar width back to layout units
+			If f_widthInMapper < 100000 Then
+				s_scaleText = (f_widthInMapper / 100) & " m"
+			Else
+				s_scaleText = (f_widthInMapper / 100000) & " km"
+			End If
+			If DEBUG Then Print "Scalebar text: " & s_scaleText End If
+			f_widthInLayout = f_widthInMapper / f_frameScale
+			If DEBUG Then Print "Calculated scalebar width on layout: " & f_widthInLayout & " cm" End If
+			
+			' if scalebar width on layout is less than 10cm, draw it
+			If f_widthInLayout < 10 Then
+				' scalebar drawing position
+				If Mi_scaleBarPosition = 1 Then ' lower left, draw as normal
+					f_startX = f_frameMinX + 0.2 ' cm in from left edge of frame
+					f_startY = f_frameMaxY - 0.2 ' cm up from bottom of frame
+					If DEBUG Then Print "Scalebar start position at lower-left of frame: " & f_startX & "," & f_startY End If
+					f_endX = f_startX + f_widthInLayout
+					f_endY = f_startY - 0.3
+					' scalebar background
+					Create Rect Into Window Mi_layoutWindowID (f_startX - 0.15,f_startY + 0.15) (f_endX + 1.25,f_endY - 0.15) Pen MakePen(1,2,BLACK) Brush MakeBrush(2, WHITE, -1)
+					If Mi_scaleBarStyle = 1 Then
+						' tick-bar style scalebar
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_startY) Pen MakePen(1,2,BLACK) ' bottom line
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_startX,f_endY) Pen MakePen(1,2,BLACK) ' left tick
+						Create Line Into Window Mi_layoutWindowID (f_endX,f_startY) (f_endX,f_endY) Pen MakePen(1,2,BLACK) ' right tick
+						Create Line Into Window Mi_layoutWindowID (f_startX + (f_widthInLayout / 2),f_startY) (f_startX + (f_widthInLayout / 2),f_endY + 0.2) Pen MakePen(1,2,BLACK) ' middle tick
+					Else
+						' block-style scalebar
+						Create Rect Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_endY) Brush MakeBrush(2, BLACK, -1)
+					End If
+					' scalebar text
+					Create Text Into Window Mi_layoutWindowID s_scaleText (f_endX + 0.1,f_startY) (f_endX + 5,f_endY - 0.02) Font MakeFont("Arial",0,8,BLACK,-1)
+				Else ' lower right, draw in reverse
+					f_startX = f_frameMaxX - 0.2 ' cm in from right edge of frame
+					f_startY = f_frameMaxY - 0.2 ' cm up from bottom of frame
+					If DEBUG Then Print "Scalebar start position at lower-right of frame: " & f_startX & "," & f_startY End If
+					f_endX = f_startX - f_widthInLayout
+					f_endY = f_startY - 0.3
+					' scalebar background
+					Create Rect Into Window Mi_layoutWindowID (f_startX + 0.15,f_startY + 0.15) (f_endX - 1.25,f_endY - 0.15) Pen MakePen(1,2,BLACK) Brush MakeBrush(2, WHITE, -1)
+					If Mi_scaleBarStyle = 1 Then
+						' tick-bar style scalebar
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_startY) Pen MakePen(1,2,BLACK) ' bottom line
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_startX,f_endY) Pen MakePen(1,2,BLACK) ' left tick
+						Create Line Into Window Mi_layoutWindowID (f_endX,f_startY) (f_endX,f_endY) Pen MakePen(1,2,BLACK) ' right tick
+						Create Line Into Window Mi_layoutWindowID (f_startX - (f_widthInLayout / 2),f_startY) (f_startX - (f_widthInLayout / 2),f_endY + 0.2) Pen MakePen(1,2,BLACK) ' middle tick
+					Else
+						' block-style scalebar
+						Create Rect Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_endY) Brush MakeBrush(2, BLACK, -1)
+					End If
+					' scalebar text
+					Create Text Into Window Mi_layoutWindowID s_scaleText (f_endX - 1.1,f_startY) (f_endX,f_endY - 0.02) Font MakeFont("Arial",0,8,BLACK,-1)
+				End If
+			End If
+			
+			' deselect the map frame
+			Run Menu Command M_QUERY_UNSELECT
+			
+			' track scalebar objects
+			Fetch Last From s_layoutTableName
+			Mi_scalebarObjsMax = a_theRowNumber
+			If DEBUG Then Print "scalebar end row: " & Mi_scalebarObjsMax End If
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+	End If
+	
+End Sub
+' ================================================================================
+
+' DrawCopyrightObjects - Clears and draws copyright statements on the largest frame on the layout
+' ================================================================================
+Sub DrawCopyrightObjects
+	If DEBUG Then Print "---------------------- DrawCopyrightObjects --->" End If
+	
+	' vars
+	Dim s_layoutTableName, s_copyrightsRequired as String
+	Dim i, i_theRowNumber, i_mapperID as Integer
+	Dim o_theObject as Object
+	Dim a_theRowNumber as Alias
+	Dim f_copyrightPositionX, f_copyrightPositionY as Float
+	Dim f_copyrightFont as Font
+	Dim d_date as Date
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		Set Handler WinChangedHandler Off
+		Set Coordsys Layout Units "cm"
+		
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		If DEBUG Then Print "Layout cosmetic table: " & s_layoutTableName End If
+
+		' remove any copyright objects that have already been created
+		If Mi_copyrightObjsMax > Mi_copyrightObjsMin Then
+			' remove copyright objects
+			If DEBUG Then Print "Removing existing copyright objects" End If
+			Select * From s_layoutTableName Where rowid > Mi_copyrightObjsMin AND rowid <= Mi_copyrightObjsMax
+			If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+				If DEBUG Then Print "Deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME) End If
+				Delete From SelectionInfo(SEL_INFO_SELNAME)
+			End If
+			' reset copyright object tracking
+			Mi_copyrightObjsMin = 0
+			Mi_copyrightObjsMax = 0
+		End If
+		
+		' create aliases for dealing with the layout table
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		
+		' select the largest map frame in the layout
+		Call SelectLargestMapFrame
+		If DEBUG Then Print "<--- returning to DrawCopyrightObjects" End If
+		' grab a copy of the largest frame object
+		o_theObject = Selection.col1
+		
+		' get the top left position of the frame object, plus a small offset for whitespace
+		f_copyrightPositionX = ObjectGeography(o_theObject, OBJ_GEO_MINX) + 0.2
+		f_copyrightPositionY = ObjectGeography(o_theObject, OBJ_GEO_MINY) + 0.2
+		If DEBUG Then Print "Copyright position on top left of frame: " & f_copyrightPositionX & "," & f_copyrightPositionY End If
+		' get the mapper ID associated with the frame
+		i_mapperID = ObjectInfo(o_theObject, OBJ_INFO_FRAMEWIN)
+		If DEBUG Then Print "Mapper in frame has ID: " & i_mapperID End If
+		Run Menu Command M_QUERY_UNSELECT ' from menu.def
+		
+		' loop over the layers in the mapper
+		s_copyrightsRequired = ""
+		' determine required copyright statements
+		For i = 1 to MapperInfo(i_mapperID, MAPPER_INFO_LAYERS)
+			' If DEBUG Then Print "Mapper Layer " & i & " path: " & LayerInfo(i_mapperID, i, LAYER_INFO_PATH) End If
+			' discount the layer if it's not visible
+			If LayerInfo(i_mapperID, i, LAYER_INFO_DISPLAY) > 0 Then
+				' test layer paths
+				If InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_MASTERMAP")
+				OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_CODEPOINT")
+				OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Ordnance Survey")
+					Then s_copyrightsRequired = s_copyrightsRequired & "|PSMA|" ' layer contains PSMA data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_BoundaryLine")
+				OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_StreetView")
+				OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_OpenData") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|OD|" ' layer contains OS Open Data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "CodePointOpen") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|CPO|" ' layer contains CodePointOpen data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "GetMapping") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|GM|" ' layer contains GetMapping data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Landmark") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|LM|" ' layer contains Landmark data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "WAG_COWI_Aerial") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|COWI|"' layer contains COWI data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Raster\Aerial Photo\2009") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|NP|"' layer contains Next Perspectives data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Intermap") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|IM|"' layer contains Intermap Height data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Environment Agency") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|ENVI|"' layer contains Environment Agency data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "CCW data") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|CCW|"' layer contains CCW data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Forestry Commission") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|FC|"' layer contains Forestry Commission data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Forestry Commission\FOREST_ESTATE") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|FCEW|"' layer contains Forestry Commission Estate Woodlands data
+				Else
+					s_copyrightsRequired = s_copyrightsRequired & "|PCC|"' layer contains other data, stick a PCC copyright on it
+				End If
+			End If
+		Next
+		
+		' place required copyright statements on layout
+		If DEBUG Then Print "Copyright codes generated: " & s_copyrightsRequired End If
+		d_date = CurDate()
+		f_copyrightFont = MakeFont("Arial",0,6,16711680,16777215)
+		If s_copyrightsRequired <> "" Then
+			' track copyright objects
+			Fetch Last From s_layoutTableName
+			Mi_copyrightObjsMin = a_theRowNumber
+			If DEBUG Then Print "copyrights start row: " & Mi_copyrightObjsMin End If
+			
+			If InStr(1, s_copyrightsRequired, "|PSMA|") Then ' PSMA table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright and database rights " & Year(d_date) & " Ordnance Survey 100025371" & Chr$(13) & "© Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) & " Arolwg Ordnans 100025371" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			ElseIf InStr(1, s_copyrightsRequired, "|OD|") Then ' OS OpenData table paths detected, PSMA table paths not detected
+				Create Text Into Window Mi_layoutWindowID "Contains Ordnance Survey data © Crown copyright and database right " & Year(d_date) & Chr$(13) & "Yn cynnwys data Arolwg Ordnans © Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|CPO|") Then ' CodePoint Open table paths detected
+				Create Text Into Window Mi_layoutWindowID "Contains Royal Mail data © Royal Mail crown copyright and database right " & Year(d_date) & Chr$(13) & "Yn cynnwys data Post Brenhinol © Brenhinol Bost Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|GM|") Then ' GetMapping table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Hawlfraint Map y Mileniwm Getmapping 2001" & Chr$(13) & "© Copyright Getmapping Millenium Map 2001" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|LM|") Then ' Landmark table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Landmark Information Group Limited" & Chr$(13) & "© Tirnod Gwybodaeth Grwp Cyfyngedig" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|COWI|") Then ' COWI table paths detected
+				Create Text Into Window Mi_layoutWindowID "© This orthophotography has been produced by COWI A/S from digital photography captured by them in 2006." & Chr$(13) & "Licensed by the Welsh Assembly Government's Department for Environment, Planning and Countryside." +Chr$(13)+ "© Mae'r orthoffotograffi hon wedi ei chynhyrchu gan  COWI A/S o ffotograffiaeth ddigidol a gymerwyd ganddynt yn 2006." +Chr$(13)+ "Wedi'u trwyddedu gan Adran Amgylchedd, Cynllunio a Chefn Gwlad Llywodraeth Cynulliad Cymru" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 1
+			End If
+			If InStr(1, s_copyrightsRequired, "|NP|") Then ' Next Perspectives table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Next Perspectives 2009, Powys County Council." & Chr$(13) &  "© Next Perspectives 2009, Cyngor Sir Powys." (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|IM|") Then ' Intermap table paths detected
+				Create Text Into Window Mi_layoutWindowID "Height information © Intermap Technology" & Chr$(13) & "Gwybodaeth Uchder © Intermap Technoleg" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|ENVI|") Then ' Environment Agency table paths detected
+				Create Text Into Window Mi_layoutWindowID "Additional information © Environment Agency " & Year(d_date) & Chr$(13) &  "Gwybodaeth ychwanegol © Asiantaeth yr Amgylchedd " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|CCW|") Then ' CCW table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright. All rights reserved. Countryside Council for Wales, 100018813 " & Year(d_date) & Chr$(13) & "© Hawlfraint y Goron. Cedwir pob hawl. Cyngor Cefn Gwlad Cymru, 100018813 " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|FC|") Then ' Forestry Commission table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright and database rights " & Year(d_date) & " Ordnance Survey 100021242" & Chr$(13) & "© Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) & " Arolwg Ordnans 100021242" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|FCEW|") Then ' Forestry Commission Estate Woodlands table paths detected
+				Create Text Into Window Mi_layoutWindowID "Derived from data © Crown Copyright and Landmark Information Group" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|PCC|") Then ' PCC table paths detected
+				Create Text Into Window Mi_layoutWindowID "Additional information © Powys County Council " & Year(d_date) & " No additional copies should be made without the permission of the Council." & Chr$(13) & "Gwybodaeth ychwanegol © Cyngor Sir Powys " & Year(d_date) & " Ni ddylid gwneud unrhyw gopïau ychwanegol heb ganiatâd y Cyngor." (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			
+			If DEBUG Then Print "Copyrights added" End If
+			' track copyright objects
+			Fetch Last From s_layoutTableName
+			Mi_copyrightObjsMax = a_theRowNumber
+			If DEBUG Then Print "copyrights end row: " & Mi_copyrightObjsMax End If
+		End If
+		
+		Set Handler WinChangedHandler On
+	End If
+	
+End Sub
+' ================================================================================
+
+' UpdateInsetFrames - Clears & Draws location markers objects into the Powys_UA and Extra Maps
+' ================================================================================
+Sub UpdateInsetFrames
+	If DEBUG Then Print "---------------------- UpdateInsetFrames --->" End If
+	
+	Dim i, i_index, i_windowID as Integer
+	Dim f_mapCentreX, f_mapCentreY, f_mapMaxX, f_mapMaxY, f_mapMinX, f_mapMinY as Float
+	Dim f_frameMaxX, f_frameMinX, f_frameScale, f_widthInLayout as Float
+	Dim s_layoutTableName, s_select as String
+	Dim a_theObject as Alias
+	Dim o_theObject as Object
+	
+	Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+	
+	f_mapCentreX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX)
+	f_mapCentreY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY)
+	f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+	f_mapMaxY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY)
+	f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+	f_mapMinY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+	
+	i_index = StructRecordFromID(Mi_openTemplateID)
+	
+	' primary inset map frame
+	If M_ARR_TEMPLATE_STRUCT(i_index).inset1_enabled = TRUE Then
+		Set Handler WinChangedHandler Off
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		If DEBUG Then Print "Layout cosmetic table: " & s_layoutTableName End If
+		' get map window ID from frame
+		If DEBUG Then Print "Attempting to select frame on row " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " from " & s_layoutTableName End If
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " Into Selection"
+		Run Command s_select
+		If DEBUG Then Print SelectionInfo(SEL_INFO_NROWS) & " rows selected" End If
+		If ObjectInfo(Selection.obj, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+			i_windowID = ObjectInfo(Selection.obj, OBJ_INFO_FRAMEWIN)
+			If DEBUG Then Print "Inset 1 map window ID = " & i_windowID End If
+			f_frameMaxX = ObjectGeography(Selection.obj, OBJ_GEO_MAXX)
+			f_frameMinX = ObjectGeography(Selection.obj, OBJ_GEO_MINX)
+			' draw location objects
+			If M_ARR_TEMPLATE_STRUCT(i_index).inset1_objs = TRUE Then
+				Set Map Window i_windowID Layer 0 Editable On
+				Delete From WindowInfo(i_windowID, WIN_INFO_TABLE)
+				' determine size of main mapper on this frame in paper units
+				f_frameScale = MapperInfo(i_windowID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+				f_widthInLayout = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameScale * 100	' width of main map in paper units
+				If DEBUG Then Print "f_widthInLayout = " & f_widthInLayout End If
+				If f_widthInLayout > 0.5 Then
+					Create Rect Into Window i_windowID (f_mapMinX,f_mapMinY)(f_mapMaxX,f_mapMaxY) Pen (2,2,BLACK) Brush (1,WHITE)
+				Else
+					Create Point Into Window i_windowID (f_mapCentreX,f_mapCentreY) Symbol (35, Black, 16)
+				End If
+			End If
+			' sync frame
+			If M_ARR_TEMPLATE_STRUCT(i_index).inset1_sync = TRUE Then
+				Set Map Window i_windowID Center (f_mapCentreX,f_mapCentreY) Layer 0 Editable Off
+			End If
+		Else
+			Note "Error in " & ApplicationName$() & " [UpdateInsetFrames]: Inset map incorrectly defined! Please contact Corporate GIS."
+		End If
+		Set Handler WinChangedHandler On
+	End If
+	
+	' secondary inset map frame
+	If M_ARR_TEMPLATE_STRUCT(i_index).inset2_enabled = TRUE Then
+		Set Handler WinChangedHandler Off
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		If DEBUG Then Print "Layout cosmetic table: " & s_layoutTableName End If
+		' get map window ID from frame
+		If DEBUG Then Print "Attempting to select frame on row " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " from " & s_layoutTableName End If
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & M_ARR_TEMPLATE_STRUCT(i_index).inset2_rowid & " Into Selection"
+		Run Command s_select
+		If DEBUG Then Print SelectionInfo(SEL_INFO_NROWS) & " rows selected" End If
+		If ObjectInfo(Selection.obj, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+			i_windowID = ObjectInfo(Selection.obj, OBJ_INFO_FRAMEWIN)
+			If DEBUG Then Print "Inset 2 map window ID = " & i_windowID End If
+			' draw location objects
+			If M_ARR_TEMPLATE_STRUCT(i_index).inset2_objs = TRUE Then
+				Set Map Window i_windowID Layer 0 Editable On
+				Delete From WindowInfo(i_windowID, WIN_INFO_TABLE)
+				' determine size of main mapper on this frame in paper units
+				f_frameScale = MapperInfo(i_windowID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+				f_widthInLayout = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameScale * 100	' width of main map in paper units
+				If DEBUG Then Print "f_widthInLayout = " & f_widthInLayout End If
+				If f_widthInLayout > 0.5 Then
+					Create Rect Into Window i_windowID (f_mapMinX,f_mapMinY)(f_mapMaxX,f_mapMaxY) Pen (2,2,BLACK) Brush (1,WHITE)
+				Else
+					Create Point Into Window i_windowID (f_mapCentreX,f_mapCentreY) Symbol (35, Black, 16)
+				End If
+			End If
+			' sync frame
+			If M_ARR_TEMPLATE_STRUCT(i_index).inset2_sync = TRUE Then
+				Set Map Window i_windowID Center (f_mapCentreX,f_mapCentreY) Layer 0 Editable Off
+			End If
+		Else
+			Note "Error in " & ApplicationName$() & " [UpdateInsetFrames]: Inset map incorrectly defined! Please contact Corporate GIS."
+		End If
+		Set Handler WinChangedHandler On
+	End If
+	
+	' deselect any frames
+	Run Menu Command M_QUERY_UNSELECT
+	
+End Sub
+' ================================================================================
+
+' SelectLargestMapFrame - Selects the largest map frame in the layout
+' ================================================================================
+Sub SelectLargestMapFrame
+	If DEBUG Then Print "---------------------- SelectLargestMapFrame --->" End If
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		Dim s_layoutTableName, s_tempTablePath, s_tempTableName, s_select as String
+		Dim a_theObject, a_theRowNumber as Alias
+		Dim i_theRowNumber as Integer
+		Dim o_theObject as Object
+		
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		If DEBUG Then Print "Layout cosmetic table: " & s_layoutTableName End If
+		
+		' create aliases for dealing with the layout table
+		a_theObject = s_layoutTableName & ".obj"
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		' create a temporary table to store information about the frames in the layout
+		' (we want to rank the frames in the layout by size and AFAIK MB has no array sorting functions)
+		s_tempTablePath = TempFileName$("") ' create a temporary path, e.g. C:\TEMP\~MAP0020.TAB
+		s_tempTableName = PathToFileName$(s_tempTablePath) ' generate a temporary name for the table that we can refer to later
+		s_tempTableName = Mid$(s_tempTableName, 2, Len(s_tempTableName) - 5)
+		
+		If DEBUG Then Print "Creating table " & s_tempTableName & " using file " & s_tempTablePath End If
+		Create Table s_tempTableName (frame_row SmallInt, frame_width Float, frame_height Float) File s_tempTablePath
+		
+		' loop over the objects in the layout window
+		Fetch First from s_layoutTableName
+		Do While Not EOT(s_layoutTableName)
+			i_theRowNumber = a_theRowNumber
+			o_theObject = a_theObject
+			' test to see if the object on the current row is a frame
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				' If DEBUG Then Print "Frame identifed on row: " & a_theRowNumber End If
+				' store the object number, height and width in the temporary table we created
+				Insert Into s_tempTableName Values (i_theRowNumber, ObjectGeography(o_theObject, OBJ_GEO_MAXX) - ObjectGeography(o_theObject, OBJ_GEO_MINX), ObjectGeography(o_theObject, OBJ_GEO_MAXY) - ObjectGeography(o_theObject, OBJ_GEO_MINY))
+			End If
+			' fetch the next row and repeat
+			Fetch Next from s_layoutTableName
+		Loop
+		
+		' get the object number associated with the largest frame in the layout from the temporary table
+		Select frame_row From s_tempTableName Where rowid = 1 Order By frame_width, frame_height Into Selection
+		i_theRowNumber = Selection.col1
+		If DEBUG Then Print "Largest frame is on row: " & i_theRowNumber End If
+		' we dont need the temporary table any more, destroy it
+		Drop Table s_tempTableName
+		If DEBUG Then Print s_tempTableName & " removed, selecting largest frame" End If
+		
+		' select the largest map frame
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & i_theRowNumber & " Into Selection"
+		Run Command s_select
+
+	End If
+	
+End Sub
+' ================================================================================
+
+' OpenAdminToolbar - verifies an admin user and displays the admin buttons on the toolbar
+' ================================================================================
+Sub OpenAdminToolbar
+	If DEBUG Then Print "---------------------- OpenAdminToolbar --->" End If
+	
+	Dim s_passwordProvided as String
+	If Ms_adminPwd <> "" Then
+	' present password dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Administration"
+		Control StaticText
+			Title "Password: "
+			Position 6,8
+		Control EditText
+			Into s_passwordProvided
+			Width 120
+			Position 44,6
+			Password
+		Control StaticText
+			Title "** Entering administration will close all open tables"
+			Position 6,24
+		Control OKButton
+		Control CancelButton
+	End If
+	
+	If (CommandInfo(CMD_INFO_DLG_OK) AND s_passwordProvided = Ms_adminPwd) OR Ms_adminPwd = "" Then
+		Close All
+		If Mi_layoutWindowID > 0 Then
+			Call WinClosedHandler
+			If DEBUG Then Print "<--- returning to OpenAdminToolbar" End If
+		End If
+		' uncheck grid and scalebar buttons
+		Alter Button ID 5003 Uncheck			' toggle grid
+		Alter Button ID 5004 Uncheck			' toggle scalebar
+		' set toggle status
+		Ml_gridButtonStatus = 0
+		Ml_scaleButtonStatus = 0
+		' enable / disable toolbar buttons
+		Alter Button ID 5001 Disable			' create layout
+		Alter Button ID 5002 Disable			' close layout
+		Alter Button ID 5003 Disable			' toggle grid
+		Alter Button ID 5004 Disable			' toggle scalebar
+		Alter Button ID 5005 Disable			' options
+		
+		' create admin toolbar
+		Alter ButtonPad "Templates"
+			Remove ID 5007
+			Add
+			PushButton
+				Calling CloseAdminToolbar
+				Icon 13 File Ms_iconsFilePath
+				HelpMsg "\nClose Template Administration"
+				ID 5101
+			PushButton
+				Calling AdminPublishing
+				Icon 25 File Ms_iconsFilePath
+				HelpMsg "\nTemplate Publishing"
+				ID 5102
+			PushButton
+				Calling AdminOpenTemplate
+				Icon 19 File Ms_iconsFilePath
+				HelpMsg "\nOpen An Existing Template for Editing"
+				ID 5103
+			PushButton
+				Calling AdminSaveTemplate
+				Icon 23 File Ms_iconsFilePath
+				HelpMsg "\nSave Template"
+				ID 5104
+			PushButton
+				Calling AdminDeleteTemplate
+				Icon 21 File Ms_iconsFilePath
+				HelpMsg "\nDelete A Template"
+				ID 5105
+			PushButton
+				Calling M_FILE_CLOSE_ALL
+				Icon MI_ICON_CLOSE_ALL
+				HelpMsg "\nClose All"
+				ID 5106
+	End If
+	
+End Sub
+' ================================================================================
+
+' CloseAdminToolbar - removes the admin buttons from the toolbar
+' ================================================================================
+Sub CloseAdminToolbar
+	If DEBUG Then Print "---------------------- CloseAdminToolbar --->" End If
+	
+	Close All
+	Alter ButtonPad "Templates"
+		Remove ID 5101, 5102, 5103, 5104, 5105, 5106
+		Add PushButton
+			Calling OpenAdminToolbar
+			Icon 11 File Ms_iconsFilePath
+			HelpMsg "\nOpen Template Administration"
+			ID 5007
+	' enable / disable toolbar buttons
+	Alter Button ID 5001 Enable				' create layout
+	Alter Button ID 5005 Enable				' show options
+	Alter Button ID 5006 Enable				' show help
+	
+End Sub
+' ================================================================================
+
+' AdminPublishing - shows a dialog allowing a template to be published or un-published
+' ================================================================================
+Sub AdminPublishing
+	If DEBUG Then Print "---------------------- AdminPublishing --->" End If
+	
+	' refresh template info
+	If Not RefreshTemplateInfo() Then
+		Note "Error in " & ApplicationName$() & " [AdminPublishing]: No templates on file"
+		Exit Sub
+	End If
+	
+	' present publishing dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Publishing"
+		Control StaticText
+			Position 6,6
+			Title "Published templates:"
+		Control MultiListBox
+			Position 6,20 Width 150 Height 150
+			ID 2345
+			Title From Variable Ms_arr_publishedNames
+		Control Button
+			Position 164,75
+			Calling AdminUnPublishTemplate
+			Title " > "
+		Control Button
+			Position 164,95
+			Calling AdminPublishTemplate
+			Title " < "
+		Control StaticText
+			Position 210,6
+			Title "Templates not yet published:"
+		Control MultiListBox
+			Position 210,20 Width 150 Height 150
+			ID 5432
+			Title From Variable Ms_arr_unPublishedNames
+		Control OKButton
+	
+End Sub
+' ================================================================================
+
+' AdminPublishTemplate - adds the published flag to a template and updates the template publishing dialog
+' ================================================================================
+Sub AdminPublishTemplate
+	If DEBUG Then Print "---------------------- AdminPublishTemplate --->" End If
+	
+	Dim i_controlValue, i_index as Integer
+	Dim l_flag as Logical
+	
+	' publish each selected template
+	i_controlValue = ReadControlValue(5432)
+	If i_controlValue = 0 Then Exit Sub End If
+	Do While i_controlValue
+		i_index = Mi_arr_unPublishedIndex(i_controlValue)
+		If DEBUG Then Print "l_flag = TemplateAction(" & M_ARR_TEMPLATE_STRUCT(i_index).path & ", ""publish"")" End If
+		l_flag = TemplateAction(M_ARR_TEMPLATE_STRUCT(i_index).path, "publish")
+		i_controlValue = ReadControlValue(5432)
+	Loop
+	
+	' refresh template info
+	If RefreshTemplateInfo() Then
+		' update controls with refreshed info
+		Alter Control 2345
+			Title From Variable Ms_arr_publishedNames
+		Alter Control 5432
+			Title From Variable Ms_arr_unPublishedNames
+	End If
+	
+End Sub
+' ================================================================================
+
+' AdminUnPublishTemplate - removes the published flag from a template and updates the template publishing dialog
+' ================================================================================
+Sub AdminUnPublishTemplate
+	If DEBUG Then Print "---------------------- AdminUnPublishTemplate --->" End If
+	
+	Dim i_controlValue, i_index as Integer
+	Dim l_flag as Logical
+	
+	' get template names to publish
+	i_controlValue = ReadControlValue(2345)
+	If i_controlValue = 0 Then Exit Sub End If
+	Do While i_controlValue
+		i_index = Mi_arr_publishedIndex(i_controlValue)
+		If DEBUG Then Print "l_flag = TemplateAction(" & M_ARR_TEMPLATE_STRUCT(i_index).path & ", ""unpublish"")" End If
+		l_flag = TemplateAction(M_ARR_TEMPLATE_STRUCT(i_index).path, "unpublish")
+		i_controlValue = ReadControlValue(2345)
+	Loop
+	
+	' refresh template info
+	If RefreshTemplateInfo() Then
+		' update controls with refreshed info
+		Alter Control 2345
+			Title From Variable Ms_arr_publishedNames
+		Alter Control 5432
+			Title From Variable Ms_arr_unPublishedNames
+	End If
+	
+End Sub
+' ================================================================================
+
+' AdminSaveTemplate - saves the current layout workspace to a new template
+' ================================================================================
+Sub AdminSaveTemplate
+	If DEBUG Then Print "---------------------- AdminSaveTemplate --->" End If
+	
+	Dim s_newTemplateName, s_arr_layoutFrameTitle(), s_generatedFilePath, s_layoutTableName as String
+	Dim a_theObject, a_theRowNumber as Alias
+	Dim i, j, k, i_id, i_arr_layoutWindowID(), i_arr_layoutFrameRow() as Integer
+	Dim l_flag, l_publish, l_inset1_enabled, l_inset2_enabled, l_inset1_objs, l_inset2_objs, l_inset1_sync, l_inset2_sync as Logical
+	Dim d_date as Date
+	
+	' check that a single layout window is open
+	If NumWindows() > 0 Then
+		If DEBUG Then Print "NumWindows(): " & NumWindows() End If
+		For i = 1 to NumWindows()
+			If WindowInfo(i, WIN_INFO_TYPE) = WIN_LAYOUT Then
+				j = j + 1
+				ReDim i_arr_layoutWindowID(j)
+				i_arr_layoutWindowID(j) = WindowID(i)
+			End If
+		Next
+		If UBound(i_arr_layoutWindowID) = 0 Then
+			Mi_newTemplateWindowID = 0
+			Note "No Layout window to save"
+		ElseIf UBound(i_arr_layoutWindowID) = 1 Then
+			Mi_newTemplateWindowID = i_arr_layoutWindowID(1)
+			If DEBUG Then Print "Mi_newTemplateWindowID = " & Mi_newTemplateWindowID End If
+		Else
+			Mi_newTemplateWindowID = 0
+			Note "This tool is only capable of saving templates with a single layout window"
+		End If
+	Else
+		Mi_newTemplateWindowID = 0
+		Note "No Layout window to save"
+	End If
+	If Mi_newTemplateWindowID = 0 Then Exit Sub End If
+	
+	' check that a frame exists in the layout
+	s_layoutTableName = WindowInfo(Mi_newTemplateWindowID, WIN_INFO_TABLE)
+	a_theObject = s_layoutTableName & ".obj"
+	a_theRowNumber = s_layoutTableName & ".rowid"
+	l_flag = TRUE
+	ReDim i_arr_layoutFrameRow(0)
+	ReDim s_arr_layoutFrameTitle(0)
+	Fetch First From s_layoutTableName
+	Do While Not EOT(s_layoutTableName)
+		If ObjectInfo(a_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+			If ObjectInfo(a_theObject, OBJ_INFO_FRAMETITLE) <> "" Then
+				i = UBound(s_arr_layoutFrameTitle) + 1
+				ReDim i_arr_layoutFrameRow(i)
+				ReDim s_arr_layoutFrameTitle(i)
+				i_arr_layoutFrameRow(i) = a_theRowNumber
+				s_arr_layoutFrameTitle(i) = ObjectInfo(a_theObject, OBJ_INFO_FRAMETITLE)
+				If DEBUG Then Print "s_arr_layoutFrameTitle(" & i & ") = " & s_arr_layoutFrameTitle(i) & ", layout row: " & i_arr_layoutFrameRow(i) End If
+			End If
+			l_flag = FALSE
+		End If
+		Fetch Next From s_layoutTableName
+	Loop
+	If l_flag Then
+		Note "Cannot save a template which does not contain a map frame"
+		Exit Sub
+	End If
+	
+	' prompt for template specification
+	s_newTemplateName = WindowInfo(Mi_newTemplateWindowID, WIN_INFO_NAME)
+	saveTemplateDlg:
+	l_flag = TRUE
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Definition"
+		Control StaticText
+			Title "Save template as: "
+			Position 8,8
+		Control EditText
+			Value s_newTemplateName
+			Into s_newTemplateName
+			Width 180
+			Position 70,6
+		Control CheckBox
+			Title "Publish the template immediately"
+			Into l_publish
+			Value FALSE
+			Position 8,24
+		Control CheckBox
+			Calling UpdateSaveTemplateDlg
+			Title "Specify an inset map"
+			Value FALSE
+			Into l_inset1_enabled
+			Position 8,38
+			ID 28561
+		Control CheckBox
+			Calling UpdateSaveTemplateDlg
+			Title "Additional inset map"
+			Value FALSE
+			Into l_inset2_enabled
+			Position 147,38
+			ID 28562
+			Disable
+		Control PopupMenu
+			Title From Variable s_arr_layoutFrameTitle
+			Into j
+			Position 14,60
+			Width 100
+			ID 28563
+			Disable
+		Control PopupMenu
+			Title From Variable s_arr_layoutFrameTitle
+			Into k
+			Position 154,60
+			Width 100
+			ID 28564
+			Disable
+		Control CheckBox
+			Title "Synchronise centre with main map"
+			Position 14,80
+			Value FALSE
+			Into l_inset1_sync
+			ID 28565
+			Disable
+		Control CheckBox
+			Title "Synchronise centre with main map"
+			Position 154,80
+			Value FALSE
+			Into l_inset2_sync
+			ID 28566
+			Disable
+		Control CheckBox
+			Title "Draw location object"
+			Position 14,94
+			Value TRUE
+			Into l_inset1_objs
+			ID 28567
+			Disable
+		Control CheckBox
+			Title "Draw location object"
+			Position 154,94
+			Value TRUE
+			Into l_inset2_objs
+			ID 28568
+			Disable
+		Control GroupBox
+			Position 5,50
+			Width 135
+			Height 60
+		Control GroupBox
+			Position 145,50
+			Width 135
+			Height 60
+		Control OKButton
+		Control CancelButton
+		
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		' stupidity check
+		If s_newTemplateName = "Layout" OR s_newTemplateName = "" Then Goto saveTemplateDlg End If
+		
+		' check that the template name doesn't already exist
+		If RefreshTemplateInfo() Then
+			For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+				If s_newTemplateName = M_ARR_TEMPLATE_STRUCT(i).name Then
+					If Ask("Template " & s_newTemplateName & " already exists, attempt to overwrite?", "Yes", "No") Then
+						If TemplateAction(M_ARR_TEMPLATE_STRUCT(i).path, "delete") Then
+							Exit For
+						Else
+							Note "This template is currently published and cannot be overwritten." & Chr$(10) & "Please un-publish the template before deleting it."
+							Goto saveTemplateDlg
+						End If
+					Else
+						Goto saveTemplateDlg
+					End If
+				End If
+			' create a new template ID while we're checking names
+			If i_id <= M_ARR_TEMPLATE_STRUCT(i).id Then i_id = M_ARR_TEMPLATE_STRUCT(i).id + 1 End If
+			Next
+		End If
+		
+		' save workspace as template
+		d_date = CurDate()
+		generatefilepath:
+		s_generatedFilePath = "templates\template_" & Format$(Year(d_date), "0000") & Format$(Month(d_date), "00") & Format$(Day(d_date), "00") & "_" & Int(Rnd(1) * 999) & ".wor"
+		If FileExists(s_generatedFilePath) Then Goto generatefilepath End If
+		If DEBUG Then Print "Saving new template as: " & ApplicationDirectory$() & s_generatedFilePath End If
+		Save Workspace As ApplicationDirectory$() & s_generatedFilePath
+		' write template definition to file
+		Open File Ms_definitionsFilePath For Append As #1
+		Write #1, i_id, s_newTemplateName, s_generatedFilePath, l_publish, l_inset1_enabled, i_arr_layoutFrameRow(j), l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_arr_layoutFrameRow(k), l_inset2_sync, l_inset2_objs
+		Close File #1
+		Note  "Template saved as """ & s_newTemplateName & """"
+		
+	End If
+	
+End Sub
+' ================================================================================
+
+' UpdateSaveTemplateDlg - enables/disables controls on the AdminSaveTemplate dialog
+' ================================================================================
+Sub UpdateSaveTemplateDlg
+
+	If ReadControlValue(28561) = 1 Then
+		Alter Control 28562 Enable
+		Alter Control 28563 Enable
+		Alter Control 28565 Enable
+		Alter Control 28567 Enable
+		If ReadControlValue(28562) = 1 Then
+			Alter Control 28564 Enable
+			Alter Control 28566 Enable
+			Alter Control 28568 Enable
+		Else
+			Alter Control 28564 Disable
+			Alter Control 28566 Disable
+			Alter Control 28568 Disable
+		End If
+	Else
+		Alter Control 28562 Disable
+		Alter Control 28563 Disable
+		Alter Control 28564 Disable
+		Alter Control 28565 Disable
+		Alter Control 28566 Disable
+		Alter Control 28567 Disable
+		Alter Control 28568 Disable
+	End If
+	
+End Sub
+' ================================================================================
+
+' AdminOpenTemplate - opens a template workspace for editing
+' ================================================================================
+Sub AdminOpenTemplate
+	If DEBUG Then Print "---------------------- AdminOpenTemplate --->" End If
+	
+	Dim s_templateNames() as String
+	Dim i, i_num as Integer
+	
+	' present template choice
+	If RefreshTemplateInfo() Then
+		templateOpenDlg:
+		' get template names for dialog
+		For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+			ReDim s_templateNames(i)
+			s_templateNames(i) = M_ARR_TEMPLATE_STRUCT(i).name
+		Next
+		' 1 character = 4 wide, 8 high
+		Dialog
+			Title "Open Template"
+			Control StaticText
+				Title "Select a template to open"
+			Control ListBox
+				Title From Variable s_templateNames
+				Into i_num
+				Width 150
+				Height 150
+			Control OKButton
+			Control CancelButton
+		
+		If CommandInfo(CMD_INFO_DLG_OK) Then
+			If i_num = 0 Then Exit Sub End If
+			If M_ARR_TEMPLATE_STRUCT(i_num).published Then
+				Note "This template is currently published and cannot be edited." & Chr$(10) & "Please un-publish the template before editing it."
+				Goto templateOpenDlg
+			End If
+			If DEBUG Then Print "Opening " & M_ARR_TEMPLATE_STRUCT(i_num).name End If
+			Run Application ApplicationDirectory$() & M_ARR_TEMPLATE_STRUCT(i_num).path
+		End If
+	Else
+		Note "No templates on file"
+	End If
+	
+End Sub
+' ================================================================================
+
+' AdminDeleteTemplate - deletes a template workspace
+' ================================================================================
+Sub AdminDeleteTemplate
+	If DEBUG Then Print "---------------------- AdminDeleteTemplate --->" End If
+	
+	Dim s_templateNames() as String
+	Dim i, i_num as Integer
+	Dim l_flag as Logical
+	
+	' present template choice
+	If RefreshTemplateInfo() Then
+		templateDeleteDlg:
+		' get template names for dialog
+		For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+			ReDim s_templateNames(i)
+			s_templateNames(i) = M_ARR_TEMPLATE_STRUCT(i).name
+		Next
+		' 1 character = 4 wide, 8 high
+		Dialog
+			Title "Delete Template"
+			Control StaticText
+				Title "Select a template to delete"
+			Control ListBox
+				Title From Variable s_templateNames
+				Into i_num
+				Width 150
+				Height 150
+			Control OKButton
+			Control CancelButton
+		
+		If CommandInfo(CMD_INFO_DLG_OK) Then
+			If i_num = 0 Then Exit Sub End If
+			If M_ARR_TEMPLATE_STRUCT(i_num).published Then
+				Note "This template is currently published and cannot be deleted." & Chr$(10) & "Please un-publish the template before deleting it."
+				Goto templateDeleteDlg
+			Else
+				l_flag = Ask("Are you certain you want to delete """ & M_ARR_TEMPLATE_STRUCT(i_num).name & """?" & Chr$(10) & Chr$(10) & "THIS ACTION IS IRREVERSIBLE!", "Delete", "Cancel")
+				If l_flag Then
+					If Not TemplateAction(M_ARR_TEMPLATE_STRUCT(i_num).path, "delete") Then
+						Note "Error in " & ApplicationName$() & " [AdminDeleteTemplate]: Could not delete template!"
+					End If
+				Else
+					Goto templateDeleteDlg
+				End If
+			End If
+		End If
+	Else
+		Note "No templates on file"
+	End If
+	
+End Sub
+' ================================================================================
+
+' RefreshTemplateInfo - reads information on stored templates from the definitions file
+' ================================================================================
+Function RefreshTemplateInfo() as Logical
+	If DEBUG Then Print "---------------------- RefreshTemplateInfo --->" End If
+	
+	Dim s_nameInput, s_pathInput as String
+	Dim i, j, i_id, i_inset1_rowid, i_inset2_rowid as Integer
+	Dim l_publishedInput, l_inset1_enabled, l_inset2_enabled, l_inset1_sync, l_inset2_sync, l_inset1_objs, l_inset2_objs as Logical
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		If DEBUG Then Print "PowysTemplates [RefreshTemplateInfo]: Could not find template definitions file!" End If
+		RefreshTemplateInfo = FALSE
+		Exit Function
+	End If
+	
+	' clear storage arrays
+	ReDim M_ARR_TEMPLATE_STRUCT(0)
+	ReDim Ms_arr_publishedNames(0)
+	ReDim Mi_arr_publishedIndex(0)
+	ReDim Ms_arr_unPublishedNames(0)
+	ReDim Mi_arr_unPublishedIndex(0)
+	
+	If DEBUG Then Print "Template storage cleared, refreshing..." End If
+	
+	' read from template definitions file
+	Open File Ms_definitionsFilePath For Input As #1
+	Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Do While Not EOF(1)
+		i = i + 1
+		ReDim M_ARR_TEMPLATE_STRUCT(i)
+		M_ARR_TEMPLATE_STRUCT(i).id = i_id
+		M_ARR_TEMPLATE_STRUCT(i).name = s_nameInput
+		M_ARR_TEMPLATE_STRUCT(i).path = s_pathInput
+		M_ARR_TEMPLATE_STRUCT(i).published = l_publishedInput
+		M_ARR_TEMPLATE_STRUCT(i).inset1_enabled = l_inset1_enabled
+		M_ARR_TEMPLATE_STRUCT(i).inset1_rowid = i_inset1_rowid
+		M_ARR_TEMPLATE_STRUCT(i).inset1_sync = l_inset1_sync
+		M_ARR_TEMPLATE_STRUCT(i).inset1_objs = l_inset1_objs
+		M_ARR_TEMPLATE_STRUCT(i).inset2_enabled = l_inset2_enabled
+		M_ARR_TEMPLATE_STRUCT(i).inset2_rowid = i_inset2_rowid
+		M_ARR_TEMPLATE_STRUCT(i).inset2_sync = l_inset2_sync
+		M_ARR_TEMPLATE_STRUCT(i).inset2_objs = l_inset2_objs
+		If l_publishedInput = TRUE Then
+			j = UBound(Ms_arr_publishedNames) + 1
+			ReDim Ms_arr_publishedNames(j)
+			ReDim Mi_arr_publishedIndex(j)
+			Ms_arr_publishedNames(j) = s_nameInput
+			Mi_arr_publishedIndex(j) = i
+		Else
+			j = UBound(Ms_arr_unPublishedNames) + 1
+			ReDim Ms_arr_unPublishedNames(j)
+			ReDim Mi_arr_unPublishedIndex(j)
+			Ms_arr_unPublishedNames(j) = s_nameInput
+			Mi_arr_unPublishedIndex(j) = i
+		End If
+		Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Loop
+	Close File #1
+	
+	' return values dependent on whether anything was read in from the definitions file
+	If i > 0 Then
+		RefreshTemplateInfo = TRUE
+		If DEBUG Then Print i & " templates read in from file" End If
+	Else
+		RefreshTemplateInfo = FALSE
+	End If
+	
+End Function
+' ================================================================================
+
+' TemplateAction - deletes, publishes or un-publishes a template
+' ================================================================================
+Function TemplateAction (ByVal s_path as String, ByVal s_action as String) as Logical
+	If DEBUG Then Print "---------------------- TemplateAction(""" & s_path & """, """ & s_action & """) --->" End If
+	
+	Dim s_tempFilePath, s_fileInput, s_nameInput, s_pathInput as String
+	Dim i_id, i_inset1_rowid, i_inset2_rowid as Integer
+	Dim l_publishedInput, l_inset1_enabled, l_inset2_enabled, l_inset1_sync, l_inset2_sync, l_inset1_objs, l_inset2_objs as Logical
+	
+	TemplateAction = FALSE
+	s_tempFilePath = ApplicationDirectory$() & PathToFileName$(TempFileName$(""))
+	
+	If s_path = "" OR (s_action <> "delete" AND s_action <> "publish" AND s_action <> "unpublish") Then
+		Exit Function
+	End If
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		If DEBUG Then Print "PowysTemplates [TemplateAction]: Could not find template definitions file!" End If
+		Exit Function
+	End If
+	
+	' copy template specifications file
+	Open File Ms_definitionsFilePath For Input As #1
+	Open File s_tempFilePath For Output As #2
+	Line Input #1, s_fileInput
+	Do While Not EOF(1)
+		Print #2, s_fileInput
+		Line Input #1, s_fileInput
+	Loop
+	Close File #2
+	Close File #1
+	
+	' rewrite file
+	If DEBUG Then Print "Re-writing template specifications file" End If
+	Open File s_tempFilePath For Input As #1
+	Open File Ms_definitionsFilePath For Output As #2
+	Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Do While Not EOF(1)
+		Do Case s_action
+			Case "publish"
+				If s_pathInput = s_path Then
+					If DEBUG Then Print "Setting publish flag to TRUE on " & s_pathInput End If
+					l_publishedInput = TRUE
+					TemplateAction = TRUE
+				End If
+				Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+			Case "unpublish"
+				If s_pathInput = s_path Then
+					If DEBUG Then Print "Setting publish flag to FALSE on " & s_pathInput End If
+					l_publishedInput = FALSE
+					TemplateAction = TRUE
+				End If
+				Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+			Case "delete"
+				If s_pathInput <> s_path Then
+					Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+				ElseIf l_publishedInput Then
+					If DEBUG Then Print "Published flag is set to TRUE, delete abandoned" End If
+					Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+				Else
+					If DEBUG Then Print "Removing " & s_path End If
+					Kill ApplicationDirectory$() & s_path
+					TemplateAction = TRUE
+				End If
+		End Case
+		Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Loop
+	Close File #2
+	Close File #1
+	
+	' destroy temporary file
+	Kill s_tempFilePath
+	
+End Function
+' ================================================================================
+
+' StructRecordFromID - Returns the array record number for a given template ID
+' ================================================================================
+Function StructRecordFromID (ByVal i_templateID as Integer) as Integer
+	
+	Dim i, returnVal as Integer
+	
+	For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+		If M_ARR_TEMPLATE_STRUCT(i).id = i_templateID Then
+			returnVal = i
+			Exit For
+		End If
+	Next
+	
+	StructRecordFromID = returnVal
+	
+End Function
+' ================================================================================
+
+' TemplateHelp - Copies the help file to the local drive if necessary and then displays it
+' ================================================================================
+Sub TemplateHelp
+	If DEBUG Then Print "---------------------- TemplateHelp --->" End If
+	
+	' paths
+	Dim s_localHelpFile, s_networkHelpFile as String
+	s_localHelpFile = GetFolderPath$(FOLDER_MI_PREFERENCE) & "PowysTemplates.chm"
+	s_networkHelpFile = ApplicationDirectory$() & "PowysTemplates.chm"
+	
+	' check for the help file
+	If Not FileExists(s_networkHelpFile) Then
+		Note "Error in " & ApplicationName$() & " [TemplateHelp]: Could not find the help file on the network!  Please contact Corporate GIS."
+		Exit Sub
+	End If
+	
+	' copy help file to local drive
+	If FileExists(s_localHelpFile) Then
+		OnError Goto helpIsOpen
+		Kill s_localHelpFile
+	End If
+	
+	dim lpExistingFileName, lpNewFileName as String
+	dim bFailIfExists as Logical
+	dim lnTempNum as Integer
+	lpExistingFileName = s_networkHelpFile
+	lpNewFileName = s_localHelpFile
+	bFailIfExists = false
+	lnTempNum = CopyFile(lpExistingFileName, lpNewFileName, bFailIfExists)
+	if lnTempNum = 0 Then
+		Note "Error in " & ApplicationName$() & " [TemplateHelp]: Could not copy the help file from the network!  Please contact Corporate GIS."
+		Exit Sub
+	End If
+	
+	' get executable path for chm files from Win32 API
+	Dim s_Buffer, s_defaultdir, s_document, s_executable As String
+	Dim x, i_BuffSize as Integer
+	s_document = s_networkHelpFile
+	i_BuffSize = 1024
+	s_Buffer = string$(i_BuffSize, chr$(32))
+	x = FindExecutable(s_document, s_defaultdir, s_Buffer)
+	s_executable = LTrim$(RTrim$(s_Buffer))
+	If DEBUG Then Print "Help executable: " & s_executable End If
+	
+	' open local help file
+	Run Program s_executable & " " & s_localHelpFile
+	
+	afterRunStatement:
+	Exit Sub
+	
+	helpIsOpen:
+		Resume afterRunStatement
+End Sub
+' ================================================================================
+
+' CloseTemplate - closes the open template and any supporting tables it may have opened
+' ================================================================================
+Sub CloseTemplate
+	If DEBUG Then Print "---------------------- CloseTemplate --->" End If
+	
+	Dim i, j as Integer
+	Dim l_flag as Logical
+	
+	Set Handler WinClosedHandler Off
+	' close the layout window, if open
+	For i = 1 to NumWindows()
+		If WindowID(i) = Mi_layoutWindowID Then
+			If DEBUG Then Print "Closing layout window with ID " & Mi_layoutWindowID End If
+			Close Window WindowID(i)
+		End If
+	Next
+	' close any windows that the template has opened
+	For i = 1 to UBound(Mi_arr_windowsToClose)
+		l_flag = FALSE
+		For j = 1 to NumWindows()
+			If Mi_arr_windowsToClose(i) = WindowID(j) Then l_flag = TRUE End If
+		Next
+		If l_flag Then
+			If DEBUG Then Print "Closing supporting window with ID " & Mi_arr_windowsToClose(i) End If
+			Close Window Mi_arr_windowsToClose(i)
+		End If
+	Next
+	' close any tables that the template has opened
+	For i = 1 to UBound(Ms_arr_tablesToClose)
+		l_flag = FALSE
+		For j = 1 to NumTables()
+			If Ms_arr_tablesToClose(i) = TableInfo(j,TAB_INFO_NAME) Then l_flag = TRUE End If
+		Next
+		If l_flag Then
+			If DEBUG Then Print "Closing supporting table with name " & Ms_arr_tablesToClose(i) End If
+			Close Table Ms_arr_tablesToClose(i)
+		End If
+	Next
+	Set Handler WinClosedHandler On
+	
+	' enable / disable toolbar buttons
+	' Alter Menu ID 4 Remove "Graticule"
+	Alter Button ID 5001 Enable				' create layout
+	Alter Button ID 5002 Disable			' close layout
+	Alter Button ID 5003 Disable			' toggle grid
+	Alter Button ID 5004 Disable			' toggle scalebar
+	
+	' uncheck grid and scalebar buttons
+	Alter Button ID 5003 Uncheck			' toggle grid
+	Alter Button ID 5004 Uncheck			' toggle scalebar
+	
+	' make the print buttons unavailable until a template has been created
+	Alter Menu Item M_FILE_PRINT Disable
+	Alter Menu Item M_FILE_PRINT_TO_PDF Disable
+	
+	Mi_layoutWindowID = 0
+	Mi_chosenMapperID = 0
+	Mi_openTemplateID = 0
+End Sub
+' ================================================================================
+
+' ================================================================================
+' AboutTemplates - Provides information about PowysTemplates
+' ================================================================================
+Sub AboutTemplates
+	Dialog
+		Title "About Powys Templates"
+		Control StaticText
+			Width 255 Height 65
+			Title "The Powys Templates toolbar provides a fast, easy way to create MapInfo layouts for printing. " &
+				  "All of the necessary copyrights, watermarks and logos are automatically included in the final " &
+				  "layout for your convenience, allowing you to just get on with the job of creating a map." & Chr$(10) & Chr$(10) &
+				  "Please see the Powys Templates help file for more information (the green question mark button " &
+				  "on the toolbar), or contact Corporate GIS via gis@powys.gov.uk if you need any other help."
+		Control OKButton
+End Sub
+' ================================================================================
+
+' ================================================================================
+' ExitTemplates - Closes the PowysTemplates application
+' ================================================================================
+Sub ExitTemplates
+	Call CloseTemplate
+	Alter Menu "Tools" Remove "Powys Templates"
+	End Program
+End Sub
+' ================================================================================
+
+' ================================================================================
+' WinClosedHandler - called by Mapinfo when a window is closed
+' ================================================================================
+Sub WinClosedHandler
+	If DEBUG Then Print "---------------------- WinClosedHandler --->" End If
+	
+	Dim i as Integer
+	Dim l_resetApp as Logical
+	
+	l_resetApp = FALSE
+	' check to see which window closed
+	If DEBUG Then Print "Window closed: " & CommandInfo(CMD_INFO_WIN) End If
+	If CommandInfo(CMD_INFO_WIN) = Mi_layoutWindowID OR CommandInfo(CMD_INFO_WIN) = Mi_chosenMapperID Then l_resetApp = TRUE End If
+	For i = 1 to UBound(Mi_arr_windowsToClose)
+		If CommandInfo(CMD_INFO_WIN) = Mi_arr_windowsToClose(i) Then l_resetApp = TRUE End If
+	Next
+	' if a section of the template has been closed, reset the application
+	If DEBUG Then Print "Layout or supporting window closed, closing template" End If
+	If l_resetApp Then
+		Call CloseTemplate
+		If DEBUG Then Print "Returned to WinClosedHandler" End If
+	End If
+	
+End Sub
+' ================================================================================
+
+' WinChangedHandler - called by Mapinfo when a map window is panned or zoomed, or whenever a map layer is added or removed
+' ================================================================================
+Sub WinChangedHandler
+	If DEBUG Then Print "---------------------- WinChangedHandler --->" End If
+	
+	If DEBUG Then Print "Window changed: " & CommandInfo(CMD_INFO_WIN) End If
+	' make sure that the window that changed was the mapper chosen in the template dialog
+	If CommandInfo(CMD_INFO_WIN) = Mi_chosenMapperID AND Mi_layoutWindowID <> 0 Then
+		' clear and add new copyright objects
+		Call DrawCopyrightObjects
+		If DEBUG Then Print "<--- returning to WinChangedHandler" End If
+		Call UpdateInsetFrames
+		If DEBUG Then Print "<--- returning to WinChangedHandler" End If
+		If Ml_gridButtonStatus = 1 Then
+			' clear and add a new grid
+			Call DrawGridObjects (TRUE, TRUE)
+		End If
+		If Ml_scaleButtonStatus = 1 Then
+			' clear and add a new scalebar
+			Call DrawScaleBarObjects (TRUE, TRUE)
+		End If
+	End If
+	
+End Sub
+' ================================================================================

@@ -1,0 +1,65 @@
+' ================================================================================
+' Powys Templates Loader Tool
+' 
+' Author: Ti Marner, Snr. Information Officer, Powys County Council
+' Email: gis@powys.gov.uk
+' ================================================================================
+' Initial Setup
+' ================================================================================
+Include "mapbasic.def"
+
+Declare Sub Main
+Declare Sub readINI
+
+Dim Ms_MBXFileName as String
+Dim DEBUG as Logical
+' ================================================================================
+
+' Main subroutine - creates the Templates toolbar
+' ================================================================================
+Sub Main
+	Dim s_fullMBXPath as String
+	DEBUG = FALSE
+	
+	If DEBUG Then Print Chr$(12) End If
+	
+	Call readINI
+	
+	s_fullMBXPath = ApplicationDirectory$() & Ms_MBXFileName
+	
+	' open tool
+	If Ms_MBXFileName Then
+		If DEBUG Then Print "s_fullMBXPath: " & s_fullMBXPath End If
+		Run Application s_fullMBXPath
+	End If
+	
+End Sub
+' ================================================================================
+
+' readINI subroutine - retrieves the latest MBX name from the accompanying ini file
+' ================================================================================
+Sub readINI
+	
+	Dim s_iniFileName as String
+	Dim s_inputBuffer as String
+	s_iniFileName = ApplicationDirectory$() & ApplicationName$()
+	s_iniFileName = Left$(s_iniFileName, Len(s_iniFileName) - 4) & ".ini"
+	If DEBUG Then Print "ini filename: " & s_iniFileName End If
+	
+	' check for ini file
+	If Not FileExists(s_iniFileName) Then
+		Note "Error in " & ApplicationName$() & "[readINI]: Could not find ini file." & Chr$(10) & "Please contact Corporate GIS."
+		End Program
+	End If
+	
+	' read MBX name from ini file
+	Open File s_iniFileName For Input as #1
+	Do While NOT EOF(1)
+		Input #1, s_inputBuffer
+		If InStr(1, s_inputBuffer, "[Filename]") Then Input #1, Ms_MBXFileName End If
+	Loop
+	Close File #1
+	
+	If DEBUG Then Print "MBX filename: " & Ms_MBXFileName End If
+	
+End Sub
