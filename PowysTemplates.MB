@@ -488,7 +488,7 @@ Sub OpenTemplate
 		Control StaticText Title "Choose Mapper: " Position 5,10
 		Control PopupMenu Title From Variable s_arr_mapperNames Into i_MapNum Position 72,8
 		Control StaticText Title "Choose Template: " Position 5,28
-		Control PopupMenu Title From Variable Ms_arr_publishedNames Into Mi_TemplateNum ID 201 Position 72,26
+		Control PopupMenu Title From Variable Ms_arr_publishedNames Value Mi_TemplateNum Into Mi_TemplateNum ID 201 Position 72,26
 		Control OKButton Position 112,44
 		Control CancelButton Position 156,44
 	
@@ -803,7 +803,8 @@ Sub ProcessTemplateFile (s_filePath as String)
 	x = GetUserName(s_Buffer, i_BuffSize)
 	s_UserName = s_Buffer
 	
-	ReDim M_ARR_TMPL_FIELDS(0)
+	ReDim M_ARR_TMPL_FIELDS(25)
+	i = 0
 	s_tempWorkspace = PathToDirectory$(TempFileName$("")) & "temporaryWorkspace.wor"
 	r = LogToFile("Rewriting workspace into: " & s_tempWorkspace)
 	OnError Goto CloseFile
@@ -829,15 +830,7 @@ Sub ProcessTemplateFile (s_filePath as String)
 			If InStr(1, s_fileInput, "%%") Then
 				i_startChar = InStr(1, s_fileInput, """") + 1
 				i_endChar = InStr(1, s_fileInput, "%%")
-				' check for duplicate field before storing
-				For j = 1 To UBound(M_ARR_TMPL_FIELDS)
-					If M_ARR_TMPL_FIELDS(j).label = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar) Then
-						r = LogToFile("duplicate field found, discarding: " & s_fileInput)
-						Goto discardField
-					End If
-				Next
-				i = UBound(M_ARR_TMPL_FIELDS) + 1
-				ReDim M_ARR_TMPL_FIELDS(i)
+				i = i + 1
 				M_ARR_TMPL_FIELDS(i).label = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar) & ": "
 				i_startChar = i_endChar
 				i_endChar = Len(s_fileInput)
@@ -845,8 +838,8 @@ Sub ProcessTemplateFile (s_filePath as String)
 				' if this template variable contains no label then use the variable name as a label for the dialog instead
 				If M_ARR_TMPL_FIELDS(i).label = ": " Then M_ARR_TMPL_FIELDS(i).label = Proper$(Right$(M_ARR_TMPL_FIELDS(i).name, Len(M_ARR_TMPL_FIELDS(i).name) - 2)) & ": " End If
 				' pre-load text variables
-				If M_ARR_TMPL_FIELDS(i).name = "%%username" Then M_ARR_TMPL_FIELDS(i).content = s_UserName End If
-				If M_ARR_TMPL_FIELDS(i).name = "%%date" Then M_ARR_TMPL_FIELDS(i).content = Format$(Day(CurDate()), "00") & "/" & Format$(Month(CurDate()), "00") & "/" & Format$(Year(CurDate()), "0000") End If
+				If M_ARR_TMPL_FIELDS(i).name = "%%username" AND M_ARR_TMPL_FIELDS(i).content = "" Then M_ARR_TMPL_FIELDS(i).content = s_UserName End If
+				If M_ARR_TMPL_FIELDS(i).name = "%%date" AND M_ARR_TMPL_FIELDS(i).content = "" Then M_ARR_TMPL_FIELDS(i).content = Format$(Day(CurDate()), "00") & "/" & Format$(Month(CurDate()), "00") & "/" & Format$(Year(CurDate()), "0000") End If
 				If M_ARR_TMPL_FIELDS(i).name = "%%time" Then M_ARR_TMPL_FIELDS(i).content = Time(24) End If
 				r = LogToFile("template variable " & M_ARR_TMPL_FIELDS(i).name & " found")
 			End If
@@ -854,6 +847,7 @@ Sub ProcessTemplateFile (s_filePath as String)
 		End If
 		Line Input #1, s_fileInput
 	Loop
+	ReDim M_ARR_TMPL_FIELDS(i) 
 	Close File #1
 	Close File #2
 	OnError Goto ErrorHandler
