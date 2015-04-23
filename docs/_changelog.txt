@@ -1,0 +1,117 @@
+CHANGELOG
+=========
+v0.5 Alpha
+- concept proof
+-----
+v0.7 Alpha
+- added grids via separate module written by John Phillips
+- added custom icons for templates toolbar
+- added initial CHM help file
+- added support for multiple templates
+-----
+v1.0 Beta
+- added winclose and winchange handlers
+- renamed variables for clarity
+- additional minor bugfixes
+-----
+v1.1 Beta
+- added automatic copyright statements
+- improved CHM file handling
+- additional minor bugfixes
+-----
+v1.2 Beta
+- improved grid module code
+- moved grid code into main program to reduce complexity
+- added more copyright statements
+- additional minor bugfixes
+-----
+v1.3 Beta
+- introduced admin toolbar
+-----
+v1.4 Beta
+- improved admin toolbar and added functions
+- changed global variables to module level to reduce memory consumption
+- reworked icons
+- improved template storage method to provide greater flexibility
+- added template definitions file
+- improved grid / scalebar draw times
+- fixed bug in toolicons.dll
+- added more copyright statements
+- additional minor bugfixes
+-----
+v1.5 Beta
+- added template pre-processing to avoid table conflicts
+- improved dialog layouts
+- fixed layout close detection, changes to map window now preserved
+- expanded CHM file for admin functions
+- improved CHM file handling to take account of a pre-existing local helpfile
+- fixed issue with DrawLocationObjects subprocedure due to missing vars
+- additional minor bugfixes
+-----
+v1.6 Beta
+- changed template paths to relative paths to ease redeployment
+- added more dynamic values to templates
+- updated CHM file
+- fixed filename datestamp on template save
+- fixed template open statements, now looks for table name conflict rather than path conflict
+- added confirmation dialog for template deletion
+-----
+v1.7 Beta
+- added menu entry under tools for PowysTemplates
+- fixed CHM handling, help is no longed opened when it is already open
+- fixed 'Internal Error: 34623' issue on layout close
+-----
+v1.8 Beta
+- added loader tool to enable easy version upgrades (loader ini file specifies the current version of the templates tool that should be loaded)
+- fixed table name conflict in SelectLargestMapFrame subroutine
+-----
+v2.01
+- renamed grid code variables for clarity
+- fixed issue with vertical grid spacing due to incorrect calculation of layout frame scale
+- fixed issue in admin when saving a new template where no name was provided by the user
+- fixed bug in admin where template filename was being formatted incorrectly
+- fixed variable type issue in select statement when selecting the largest map frame on the layout
+- added additional clause for variable map frame in Definitive Map template
+-----
+v2.1
+- removed hard-coded definitions for special templates
+- added code to dynamically update recorded inset map frames on layout
+- added values for inset frames to template definitions file
+- added template IDs to definitions file for easier tracking
+- expanded admin save template dialog with options for inset map frames
+- improved template storage, now uses a type struct rather than separate arrays
+-----
+v2.1.1
+- removed ApplicationName$() and M_FILE_PRINT_TO_PDF to allow compilation in MapBasic 9.5
+- recompiled in MapBasic 9.5
+-----
+v2.1.2
+- added windows API calls to get and set current directory, enabling relative paths in template workspaces
+-----
+v2.1.3
+- added %extra_text% variable text for templates to cater for Planning Committee templates
+-----
+v2.1.4
+- fixed infinite refresh issue when opening a template with seamless tables
+- added check to UpdateInsetFrames to prevent application failure when no frame was selected
+- added 1:500 map scale to New Layout dialog
+- new Layout dialog now remembers entered values (values are wiped when the tool is closed)
+- debug flag can now be toggled from the About dialog
+- debug messages are now logged to file in %appdata% rather than printing to the message window
+- added notification on application startup that debug flag is enabled, with the option to disable it
+- template options are now saved between uses
+- toolbar position is now saved precisely including dock position (top/bottom/left/right)
+- added error handling, tool should now close gracefully and log the error when an issue is encountered
+- added relative filepaths to open template routine in the admin section of the tool
+-----
+v2.2
+- added new layout creation dialog, fields are now controlled by variables in each template
+- changed template variable syntax to 'Variable Display Name%%variable'
+- improved workspace localisation, supporting tables are now saved alongside their respective template
+- improved debug logging, log is now written to constantly but only saved when an error occurs
+-----
+TODO:
+- check for insetframe id before calling updateinsetframes subroutine
+- solve slow-down when drawing grid on a layout that contains an inset frame
+- cope gracefully with removal of layout objects
+- provide admin with a tool to target the desired map frame (perhaps save off the position of template objects rather than their rowid)

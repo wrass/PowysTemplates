@@ -1,0 +1,53 @@
+Deployment instructions for Powys Templates.
+author: Ti Marner, Sr. Systems Support Officer, Powys County Council
+email: ti@powys.gov.uk
+==========================================================
+
+Program Folder Structure
+----------------------------------------------------------
+─┬─ root [DIR]
+ ├─ PowysTemplatesLoader.MBX
+ ├─ PowysTemplatesLoader.ini
+ ├─ PowysTemplatesV##.MBX
+ ├─ PowysTemplates.chm
+ ├─ template_definitions.cfg
+ ├─ toolicons.dll
+ ├─┬─ documentation [DIR]
+ │ ├─ _changelog.txt
+ │ ├─ deployment_instructions.txt
+ │ ├─ program_structure_overview.graphml
+ │ └─ program_structure_overview.pdf
+ ├─┬─ tabs [DIR]
+ │ ├─ final_watermark.DAT
+ │ ├─ final_watermark.ID
+ │ ├─ final_watermark.MAP
+ │ ├─ final_watermark.TAB
+ │ ├─ Pcc_logo.DAT
+ │ ├─ Pcc_logo.ID
+ │ ├─ Pcc_logo.MAP
+ │ ├─ Pcc_logo.TAB
+ │ ├─ watermark.DAT
+ │ ├─ watermark.ID
+ │ ├─ watermark.MAP
+ │ └─ watermark.TAB
+ └─┬─ templates [DIR]
+   ├─ template_########_###.wor
+   ├─ template_########_###.wor
+   └─ ...
+
+Deployment Instructions
+----------------------------------------------------------
+Deploy the above folder structure to a network drive in its entirety, you can name the root directory as you wish.
+
+Installation and Use
+----------------------------------------------------------
+- Install the tool to MapInfo 10.5 or above, the program will not run in MapInfo 9.5 or below.
+- Set up the tool as usual in the MapInfo Professional tool manager, linking to the PowysTemplatesLoader.MBX file.
+- When loaded, PowysTemplatesLoader.MBX will initialise the version of PowysTemplatesV##.MBX specified in the ini file.
+
+Program Updates
+----------------------------------------------------------
+1. Deploy the new version of PowysTemplatesV##.MBX into the root directory alongside the existing version.
+2. Edit PowysTemplatesLoader.ini to point to the new MBX.
+3. Wait 24 hours for the version change to spread across the install base.
+4. Remove the old version of PowysTemplatesV##.MBX from the root directory.
