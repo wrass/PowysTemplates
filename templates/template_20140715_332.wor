@@ -1,0 +1,174 @@
+!Workspace
+!Version  950
+!Charset WindowsLatin1
+Open Table "templates\template_20140715_332\Pcc_logo" As Pcc_logo Interactive
+Open Table "templates\template_20140715_332\final_watermark" As final_watermark Interactive
+Open Table "templates\template_20140715_332\Powys_UA" As Powys_UA Interactive
+Set Window MapBasic
+  Position (0.125,8.94792) Units "in"
+  Width 12.0417 Units "in" Height 1.375 Units "in" 
+Open Window MapBasic
+Map From Pcc_logo
+  Position (0.0520833,0.0520833) Units "in"
+  Width 1.20833 Units "in" Height 0.666667 Units "in" Min
+Set Window FrontWindow() ScrollBars Off Autoscroll On
+Set Map
+  CoordSys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+  Center (276424.2203,324592.6095)
+  Zoom 24.61666585 Units "km"
+  Preserve Zoom Display Zoom
+  Distance Units "km" Area Units "sq km" XY Units "m"
+  Distance Type Cartesian
+Set Map
+  Layer 1
+    Display Graphic
+    Global Pen (1,2,0) Brush (2,16777215,16777215) Symbol (35,0,12) Line (1,2,0) Font ("Arial",0,9,0)
+    Label Line None Position Center Font ("Arial",0,9,0) Pen (1,2,0) 
+      With ID
+      Parallel On Auto Off Overlap Off Duplicates On Offset 2
+      Visibility On
+Set Window FrontWindow() Printer
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
+ Papersize 9
+Map From final_watermark
+  Position (6.64583,0.03125) Units "in"
+  Width 8.29167 Units "in" Height 5.52083 Units "in" Min
+Set Window FrontWindow() ScrollBars Off Autoscroll On
+Set Map
+  CoordSys NonEarth Units "m"
+  Center (146.8906486,105.7562799)
+  Zoom 293.3927362 Units "m"
+  Preserve Zoom Display Zoom
+  Distance Units "m" Area Units "sq m" XY Units "m"
+  Distance Type Cartesian
+Set Map
+  Layer 1
+    Display Graphic
+    Global Pen (1,2,0) Brush (2,16777215,16777215) Symbol (35,0,12) Line (1,2,0) Font ("Arial",0,9,0)
+    Label Line Arrow Position Above Font ("Arial",0,9,0) Pen (1,2,0) 
+      With ID
+      Parallel On Auto Off Overlap Off Duplicates Off Offset 2
+      Visibility On
+Set Window FrontWindow() Printer
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
+ Papersize 9
+Map From Powys_UA
+  Position (5.63542,3.39583) Units "in"
+  Width 2.46875 Units "in" Height 4 Units "in" Min
+Set Window FrontWindow() ScrollBars Off Autoscroll On
+Set Map
+  CoordSys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+  Center (301910.579,271995.0413)
+  Zoom 83.72734691 Units "km"
+  Preserve Zoom Display Zoom
+  Distance Units "km" Area Units "sq km" XY Units "m"
+  Distance Type Cartesian
+Set Map
+  Layer 1
+    Display Graphic
+    Global Pen (1,2,0) Brush (2,16777215,16777215) Symbol (35,0,12) Line (1,2,0) Font ("Arial",0,9,0)
+    Label Line None Position Center Font ("Arial",0,9,0) Pen (1,2,0) 
+      With Name
+      Parallel On Auto Off Overlap Off Duplicates On Offset 2
+      Visibility On
+Set Map Layer 0 Editable
+Set Window FrontWindow() Printer
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
+ Papersize 9
+Layout
+  Position (0.0833333,0.0625) Units "in"
+  Width 7.07292 Units "in" Height 5.11458 Units "in" 
+  Dim uniqueStringName As String
+  uniqueStringName = "Set " + SessionInfo(1)
+  Set CoordSys Layout Units "in"
+  Create Rect (0.3632,0.2993) (11.0431,7.984)
+    Pen (1,2,0) 
+    Brush (1,16777215,16777215)
+  Create Rect (0.3632,7.2944) (11.0431,7.9833)
+    Pen (1,2,0) 
+    Brush (1,16777215,16777215)
+  Create Text
+    "Cyngor Sir"
+    (0.5625,7.4757) (1.2056,7.6257)
+    Font ("Arial",1,9,32768)
+
+  Create Text
+    "County Council"
+    (2.1736,7.4757) (3.1035,7.6257)
+    Font ("Arial",1,9,32768)
+
+  Create Line (3.3986,7.3674) (3.3986,7.9188)
+    Pen (1,2,0) 
+  Create Line (0.4604,7.6597) (3.2132,7.6583)
+    Pen (1,2,16711680) 
+  Create Text
+    "Printed by:"
+    (0.4646,7.8139) (0.8861,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "Date:"
+    (1.584,7.8139) (1.8056,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Frame (0.6,0.55) (10.8,7.0799)
+    Pen (1,2,0) 
+    Brush (2,16777215,16777215)
+    Title ""
+    FillFrame On
+  Create Frame (1.3333,7.2) (2.075,7.6917)
+    Pen (1,1,0) 
+    Brush (2,16777215,16777215)
+    Title "Pcc_logo Map"
+    FillFrame On
+  Create Text
+    "%%username"
+    (0.8771,7.8139) (1.4201,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "%%date"
+    (1.8028,7.8139) (2.1361,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "%%title"
+    (3.5722,7.35) (4.2458,7.5951)
+    Font ("Arial",256,14,0,16777215)
+
+  Create Text
+    "Ref No%%ref_no"
+    (3.5722,7.65) (5.1056,7.8951)
+    Font ("Arial",256,14,0,16777215)
+
+  Create Frame (9.6111,0.5951) (10.7153,2.391)
+    Pen (1,2,0) 
+    Brush (2,16777215,16777215)
+    Title "Powys_UA Map"
+    FillFrame On
+  Create Frame (1.6104,1.1194) (9.6632,6.4326)
+    Pen (1,1,0) 
+    Brush (1,16777215,16777215)
+    Title "final_watermark Map"
+    FillFrame On
+  Set Layout Ruler On Pagebreaks On Frame Contents Active
+  Zoom 56.7534 Center (5.84583,4.15169) Extents To Fit
+  Set Window FrontWindow() Autoscroll On Enhanced On
+  Run Command uniqueStringName
+  Undim uniqueStringName
+Set Window FrontWindow() Title "A4 Landscape General"
+Set Window FrontWindow() Printer
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Landscape Copies 1
+ Papersize 9
+ Margins Left 0.24 Right 0.228333 Top 0.233333 Bottom 0.233333 Units "in"
+Set Digitizer
+  (306000,332000) (1770,5434) Label "Pt 1",
+  (306000,320000) (1706,712) Label "Pt 2",
+  (320000,320000) (7206,647) Label "3",
+  (320000,330000) (7251,4580) Label "4"
+  CoordSys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+  Units "m"
+  Width 9000 Height 6000
+  Resolution 500, 500
+  Button 1, 2
+  Mode Off

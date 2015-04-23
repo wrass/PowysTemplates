@@ -1,0 +1,3125 @@
+' ================================================================================
+' PowysTemplates
+' Mapinfo version 10.5+ templates tool for Powys County Council
+' 
+' Version: 2.2
+' Author: Ti Marner, Sr. Systems Support Officer, Powys County Council
+' Contributors:	John Phillips, GIS Technician, Powys County Council
+' 				Ceri Morrey, GIS Technician, Powys County Council
+'				Rhodri Curnow, GIS Support Specialist/ PSMA Principle Contact
+' Email: gis@powys.gov.uk
+' ================================================================================
+' Initial Setup
+' ================================================================================
+Include "mapbasic.def"
+Include "icons.def"
+Include "menu.def"
+
+' subroutine declarations
+Declare Sub Main
+Declare Sub LoadAppState
+Declare Sub SaveAppState
+Declare Sub OpenTemplate
+Declare Sub ProcessTemplateFile (s_filePath as String)
+Declare Sub dialog_onLoad
+Declare Sub SelectLargestMapFrame
+Declare Sub ToggleGrid
+Declare Sub ToggleScaleBar
+Declare Sub DrawGridObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+Declare Sub DrawScaleBarObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+Declare Sub DrawCopyrightObjects
+Declare Sub UpdateInsetFrames
+Declare Sub TemplateOptions
+Declare Sub TemplateHelp
+Declare Sub CloseTemplate
+Declare Sub OpenAdminToolbar
+Declare Sub CloseAdminToolbar
+Declare Sub AdminPublishing
+Declare Sub AdminPublishTemplate
+Declare Sub AdminUnPublishTemplate
+Declare Sub AdminSaveTemplate
+Declare Sub UpdateSaveTemplateDlg
+Declare Sub AdminOpenTemplate
+Declare Sub AdminDeleteTemplate
+Declare Sub AboutTemplates
+Declare Sub ExitTemplates
+Declare Sub WinChangedHandler
+Declare Sub WinClosedHandler
+
+' type declarations
+Type SECURITY_ATTRIBUTES
+  nLength as Integer						'DWORD in Windows
+  lpSecurityDescriptor as Integer			'LPVOID in Windows
+  bInheritHandle as Integer					'BOOL in Windows
+End Type
+Type TEMPLATE
+	id as Integer							' template ID
+	name as String							' template name
+	path as String							' path to template file
+	published as Logical					' whether template is published
+	inset1_enabled as Logical				' primary inset map frame enabled
+	inset1_rowid as Integer					' layout table row for primary inset map frame
+	inset1_sync as Logical					' sync primary inset map frame centre with main map
+	inset1_objs as Logical					' draw location objects into primary inset map frame
+	inset2_enabled as Logical				' secondary inset map frame enabled
+	inset2_rowid as Integer					' layout table row for secondary inset map frame
+	inset2_sync as Logical					' sync secondary inset map frame centre with main map
+	inset2_objs as Logical					' draw location objects into secondary inset map frame
+End Type
+Type TMPFIELD
+	label as String							' dialog field label
+	name as String							' dialog field name
+	content as String						' dialog field content
+End Type
+
+' function declarations
+Declare Function StructRecordFromID (ByVal i_templateID as Integer) as Integer
+Declare Function TabFileIsOpen (ByVal s_tabname as String) as Logical
+Declare Function RefreshTemplateInfo () as Logical
+Declare Function TemplateAction (ByVal s_path as String, ByVal s_action as String) as Logical
+Declare Function LocaliseWorkspace (ByVal s_path as String) as Logical
+Declare Function LogToFile (ByVal s_logString as String) as Logical
+Declare Function GetUserName Lib "advapi32.dll" Alias "GetUserNameA" (lpBuffer As String, nSize As Integer) As Integer
+Declare Function FindExecutable Lib "shell32.dll" Alias "FindExecutableA" (lpFile As String, lpDirectory As String, lpResult as String) As Integer
+Declare Function CopyFile Lib "kernel32" Alias "CopyFileA" (ByVal lpExistingFileName as String, ByVal lpNewFileName as String, ByVal bFailIfExists as Logical) as Integer
+Declare Function CreateDirectory Lib "kernel32" Alias "CreateDirectoryA" (ByVal sPath as String, tSecurity as SECURITY_ATTRIBUTES) as Integer
+Declare Function RemoveDirectory Lib "kernel32" Alias "RemoveDirectoryA" (ByVal sPath as String) as Integer
+Declare Function GetCurrentDirectory Lib "kernel32" Alias "GetCurrentDirectoryA" (nSize as Integer, lpBuffer as String) as Integer
+Declare Function SetCurrentDirectory Lib "kernel32" Alias "SetCurrentDirectoryA" (ByVal lpPathName as String) as Integer
+
+' global variables
+Global Gf_ver as Float						' application version - change this in main subroutine
+
+' module level variables
+Dim Mi_chosenMapperID as Integer			' ID of the mapper chosen by the user to create a layout from
+Dim Mi_layoutWindowID as Integer			' ID of the layout window created by this program
+Dim Ml_drawGridLines as Logical				' whether grid lines are drawn in addition to labels on layout
+Dim Mp_gridLineStyle as Pen					' pen style for grid lines
+Dim Mi_gridLabelFormat as Integer			' choice 1-3 for grid label style on layout
+Dim Mf_gridLabelFont as Font				' font style for grid labels
+Dim Mi_scaleBarPosition as Integer			' choice 1-2 for position of scale bar on layout
+Dim Mi_scaleBarStyle as Integer				' choice 1-2 for style of scalebar in layout
+Dim Mi_scaleBarUnits as Integer				' choice 1-2 for units on scalebar in layout
+Dim Ms_logFilePath, Ms_stateFilePath, Ms_definitionsFilePath, Ms_iconsFilePath, Ms_localHelpFile, Ms_networkHelpFile as String
+Dim Ms_errMsg, Ms_adminPwd, Ms_UserName, Ms_arr_openTableStatements(), Ms_arr_tablesToClose() as String
+Dim Mi_TemplateNum, Mi_scaleNo as Integer
+Dim Mi_copyrightObjsMin, Mi_copyrightObjsMax, Mi_gridObjsMin, Mi_gridObjsMax, Mi_scalebarObjsMin, Mi_scalebarObjsMax, Mi_newTemplateWindowID, Mi_arr_windowsToClose() as Integer
+Dim Mi_openTemplateID, Mi_numDlgFields, Mi_padDockPos, Mi_padWidth as Integer
+Dim Ml_gridButtonStatus, Ml_scaleButtonStatus as SmallInt
+Dim M_ARR_TEMPLATE_STRUCT() as TEMPLATE
+Dim M_ARR_TMPL_FIELDS() as TMPFIELD
+Dim Mf_padPosX, Mf_padPosY as Float
+Dim Ms_arr_publishedNames(), Ms_arr_unPublishedNames() as String
+Dim Mi_arr_publishedIndex(), Mi_arr_unPublishedIndex() as Integer
+Dim r, Ml_saveDebugInfo as Logical
+
+' ================================================================================
+
+' Main subroutine - creates the Templates toolbar
+' ================================================================================
+Sub Main
+	OnError Goto ErrorHandler
+	
+	' variable defaults - may be overwritten by LoadAppState subroutine or TemplateOptions subroutine
+	Randomize
+	Gf_ver = 2.2																	' application version
+	Ms_adminPwd = Chr$(103) & Chr$(49) & Chr$(115)									' admin password
+	Ml_saveDebugInfo = FALSE														' debug flag
+	Mi_padDockPos = 2																' toolbar dock position
+	Mf_padPosX = 10																	' toolbar x position
+	Mf_padPosY = 10																	' toolbar y position
+	Mi_padWidth = 8																	' toolbar button width
+	Ml_drawGridLines = TRUE															' set default gridlines on
+	Mp_gridLineStyle = MakePen(1,2,10526880)										' set default grid line style
+	Mi_gridLabelFormat = 1															' set default grid label style to full six figure
+	Mf_gridLabelFont = MakeFont("Arial",0,8,Black,-1)								' set default grid label font
+	Mi_scaleBarPosition = 2															' set default scalebar position to lower right
+	Mi_scaleBarStyle = 1															' set default scalebar style to tick-bar
+	Mi_scaleBarUnits = 1															' set default scalebar units to metres / kilometres
+	' file paths
+	Ms_definitionsFilePath = ApplicationDirectory$() & "template_definitions.cfg"
+	Ms_iconsFilePath = ApplicationDirectory$() & "toolicons.dll"
+	Ms_logFilePath = GetFolderPath$(FOLDER_MI_PREFERENCE) & "PowysTemplatesLog.txt"
+	Ms_stateFilePath = GetFolderPath$(FOLDER_MI_PREFERENCE) & "PowysTemplatesState.ini"
+	Ms_localHelpFile = GetFolderPath$(FOLDER_MI_PREFERENCE) & "PowysTemplates.chm"
+	Ms_networkHelpFile = ApplicationDirectory$() & "PowysTemplates.chm"
+	' load previous application state
+	Call LoadAppState
+
+	' Windows API call variables
+	Dim s, s_Buffer as String
+	Dim x, i_BuffSize as Integer
+	Dim s_padPos as String
+	
+	' get username from Win API
+	i_BuffSize = 1024
+	s_Buffer = string$(i_BuffSize, chr$(32))
+	x = GetUserName(s_Buffer, i_BuffSize)
+	Ms_UserName = s_Buffer
+	r = LogToFile("application initialised by user '" & Ms_UserName & "'")
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		Note "Error in MBX routine [Main]: Could not find template definitions file! Please contact Corporate GIS."
+		End Program
+	End If
+	' check for toolbar icons DLL
+	If NOT FileExists(Ms_iconsFilePath) Then
+		Note "Error in MBX routine [Main]: Could not find toolbar icons! Please contact Corporate GIS."
+		End Program
+	End If
+	
+	' make sure we're working in consistent paper units to position the buttonpad accurately, see the SaveAppState subroutine
+	Set Paper Units "in"
+	' create templates toolbar
+	Create ButtonPad "Templates" As 
+		PushButton 
+			Calling OpenTemplate
+			Icon 1 File Ms_iconsFilePath
+			HelpMsg "\nCreate New Layout"
+			ID 5001
+		PushButton 
+			Calling CloseTemplate
+			Icon 3 File Ms_iconsFilePath
+			HelpMsg "\nClose Layout"
+			ID 5002
+			Disable
+		ToggleButton 
+			Calling ToggleGrid
+			Icon 5 File Ms_iconsFilePath
+			HelpMsg "\nToggle Grid On/Off"
+			ID 5003
+			Disable
+		ToggleButton 
+			Calling ToggleScaleBar
+			Icon MI_ICON_MAPSYMB_3
+			HelpMsg "\nToggle Scalebar On/Off"
+			ID 5004
+			Disable
+		PushButton 
+			Calling TemplateOptions
+			Icon 7 File Ms_iconsFilePath
+			HelpMsg "\nOptions"
+			ID 5005
+		PushButton
+			Calling TemplateHelp
+			Icon 9 File Ms_iconsFilePath
+			HelpMsg "\nTemplates Help"
+			ID 5006
+		PushButton
+			Calling OpenAdminToolbar
+			Icon 11 File Ms_iconsFilePath
+			HelpMsg "\nOpen Template Administration"
+			ID 5007
+		Title "Templates" 
+		Show
+	
+	' buttonpad fixed / floating
+	Set Paper Units "in"
+	If Mi_padDockPos = 0 Then
+		r = LogToFile("floating ButtonPad at "+Mf_padPosX+","+Mf_padPosY)
+		Alter ButtonPad "Templates"
+			Width Mi_padWidth
+			Position(Mf_padPosX,Mf_padPosY)
+			Float
+	Else
+		Do Case Mi_padDockPos
+			Case 1 s_padPos = "Left"
+			Case 2 s_padPos = "Top"
+			Case 3 s_padPos = "Right"
+			Case 4 s_padPos = "Bottom"
+		End Case
+		r = LogToFile("fixing ButtonPad at "+Mf_padPosX+","+Mf_padPosY)
+		s = "Alter ButtonPad ""Templates"" Width " & Mi_padWidth & " ToolbarPosition(" & Int(Mf_padPosY) & "," & Int(Mf_padPosX) & ") " & s_padPos
+		Run Command s
+	End If
+	
+	' create templates menu
+	Create Menu "Powys Templates" ID 942 As
+		"Create New Layout..." Calling OpenTemplate,
+		"Powys Templates Help Topics..." Calling TemplateHelp,
+		"(-",
+		"About Powys Templates..." Calling AboutTemplates,
+		"Exit Powys Templates" Calling ExitTemplates
+	
+	Alter Menu "Tools" Add
+		"Powys Templates" As "Powys Templates"
+	
+	' set toggle status
+	Ml_gridButtonStatus = 0
+	Ml_scaleButtonStatus = 0
+	
+	r = LogToFile("startup complete, application ready")
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' TemplateOptions - Presents the template options dialog
+' ================================================================================
+Sub TemplateOptions
+	OnError Goto ErrorHandler
+	r = LogToFile("entering TemplateOptions subroutine >>")
+	
+	Dim l_drawGridLines as Logical
+	Dim i_gridLabelFormat, i_scaleBarPosition, i_scaleBarStyle, i_scaleBarUnits as Integer
+	Dim p_gridLineStyle as Pen
+	Dim f_gridLabelFont as Font
+	
+	' get options from globals
+	l_drawGridLines = Ml_drawGridLines
+	i_gridLabelFormat = Mi_gridLabelFormat
+	i_scaleBarPosition = Mi_scaleBarPosition
+	i_scaleBarStyle = Mi_scaleBarStyle
+	i_scaleBarUnits = Mi_scaleBarUnits
+	p_gridLineStyle = Mp_gridLineStyle
+	f_gridLabelFont = Mf_gridLabelFont
+	
+	' present template options dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Options"
+		Control GroupBox
+			Title "Grid Options"
+			Position 4,6
+			Width 270 Height 80
+		Control StaticText
+			Title "Grid Lines On/Off"
+			Position 12,20
+		Control CheckBox
+			Value l_drawGridLines
+			Into l_drawGridLines
+			Position 80,20
+		Control StaticText
+			Title "Grid Label Format"
+			Position 12,36
+		Control RadioGroup
+			Title "Full Grid References;OS Style References;Definitive Map Style"
+			Value i_gridLabelFormat
+			Into i_gridLabelFormat
+			Position 80,36
+		Control StaticText
+			Title "Line Style"
+			Position 180,26
+		Control PenPicker
+			Value p_gridLineStyle
+			Into p_gridLineStyle
+			Position 186,40
+		Control StaticText
+			Title "Label Style"
+			Position 230,26
+		Control FontPicker
+			Value f_gridLabelFont
+			Into f_gridLabelFont
+			Position 238,40
+		Control GroupBox
+			Title "ScaleBar Options"
+			Position 4,90
+			Width 270 Height 60
+		Control StaticText
+			Title "Scalebar Position"
+			Position 12,104
+		Control RadioGroup
+			Title "Lower Left;Lower Right"
+			Value i_scaleBarPosition
+			Into i_scaleBarPosition
+			Position 12,116
+		Control StaticText
+			Title "Scalebar Style"
+			Position 100,104
+		Control RadioGroup
+			Title "Tick-Bar;Solid Block"
+			Value i_scaleBarStyle
+			Into i_scaleBarStyle
+			Position 100,116
+		' Control StaticText
+			' Title "Scalebar Units"
+			' Position 188,104
+		' Control RadioGroup
+			' Title "Metres/Kilometres;Yards/Miles"
+			' Value i_scaleBarUnits
+			' Into i_scaleBarUnits
+			' Position 188,116
+		Control OKButton
+		Control CancelButton
+	
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		' write options back to globals
+		Ml_drawGridLines = l_drawGridLines
+		Mi_gridLabelFormat = i_gridLabelFormat
+		Mi_scaleBarPosition = i_scaleBarPosition
+		Mi_scaleBarStyle = i_scaleBarStyle
+		Mi_scaleBarUnits = i_scaleBarUnits
+		Mp_gridLineStyle = p_gridLineStyle
+		Mf_gridLabelFont = f_gridLabelFont
+		r = LogToFile("template options updated")
+		
+		Call WinChangedHandler
+		r = LogToFile("<< leaving TemplateOptions subroutine")
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' OpenTemplate - Opens a published template
+' ================================================================================
+Sub OpenTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering OpenTemplate subroutine >>")
+	
+	' local variables
+	Dim i, j, i_index, i_bound, i_MapNum, i_arr_mapScales(), i_theRowNumber as Integer
+	Dim f_mapCentreX, f_mapCentreY, f_mapScale, f_mapWidth, f_mapperAspectRatio, f_frameAspectRatio as Float
+	Dim f_mapMaxX, f_mapMaxY, f_mapMinX, f_mapMinY, f_frameScale, f_frameMaxX, f_frameMinX as Float
+	Dim s_arr_mapperNames(), s_arr_publishedNames(), s_layoutTableName, s_tableOpen, s_templateToOpen, s_time as String
+	Dim i_startChar, i_endChar, i_arr_publishedIDs(), i_structRecord, i_scaleNo as Integer
+	Dim s_tempWorkspace, s_fileInput, s_currentDir as String
+	Dim f_font as Font
+	Dim a_theRowNumber, a_theObject as Alias
+	Dim l_flag as Logical
+	Dim o_theObject as Object
+	Dim d_date as Date
+	' Windows API call variables
+	Dim s_Buffer as String
+	dim x, i_BuffSize as Integer
+	dim lnTempNum as Integer
+	dim lpPathName as String
+	
+	' set coordinate system and units
+	Set CoordSys Earth Projection 8, 79, "m",-2,49, 0.9996012717, 400000,-100000
+	Set Distance Units "km"
+	Set Paper Units "cm"
+	
+	' variable init
+	ReDim i_arr_mapScales(11)
+	i_arr_mapScales(1) = 500
+	i_arr_mapScales(2) = 1250
+	i_arr_mapScales(3) = 2500
+	i_arr_mapScales(4) = 5000
+	i_arr_mapScales(5) = 10000
+	i_arr_mapScales(6) = 25000
+	i_arr_mapScales(7) = 50000
+	i_arr_mapScales(8) = 100000
+	i_arr_mapScales(9) = 250000
+	i_arr_mapScales(10) = 500000
+	i_arr_mapScales(11) = 1000000
+	
+	' check for unsaved edits
+	r = LogToFile("checking for unsaved tables")
+	If NumTables() > 1 Then
+		For i = 1 to NumTables()
+			If TableInfo(i, TAB_INFO_EDITED) Then
+				r = LogToFile("unsaved table edits found, layout generation halted")
+				Note "You have unsaved changes, please save or revert any edited tables before creating a layout."
+				Exit Sub
+			End If
+		Next
+	End If
+	
+	' ensure that we have a window to create a layout from
+	If NumWindows() > 0 Then
+		j = 0
+		For i = 1 to NumWindows()
+			' get all currently open mapper names
+			If WindowInfo(i,WIN_INFO_TYPE) = WIN_MAPPER Then
+				j = j + 1
+				ReDim s_arr_mapperNames(j)
+				s_arr_mapperNames(j) = WindowInfo(i,WIN_INFO_NAME)
+			End If
+		Next
+	Else
+		r = LogToFile("no map windows open, layout generation halted")
+		Note "No windows open, please open a map window first."
+		Exit Sub
+	End If
+	' ensure that we have a mapper window to create a layout from
+	If UBound(s_arr_mapperNames) = 0 Then
+		r = LogToFile("no map windows open, layout generation halted")
+		Note "No maps open, please open a map window first."
+		Exit Sub
+	End If
+	r = LogToFile(UBound(s_arr_mapperNames) & " map windows detected")
+	
+	' refresh template information
+	If Not RefreshTemplateInfo() Then
+		r = LogToFile("no templates found, layout generation halted")
+		Note "No templates on file"
+		Exit Sub
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' check for published templates
+	If UBound(Ms_arr_publishedNames) = 0 Then
+		r = LogToFile("no published templates found, layout generation halted")
+		Note "No published templates found"
+		Exit Sub
+	End If
+	
+	openTemplateDlg:
+	r = LogToFile("displaying template creation dialog")
+	' present template creation dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "New Layout from Template"
+		Control StaticText Title "Choose Mapper: " Position 5,10
+		Control PopupMenu Title From Variable s_arr_mapperNames Into i_MapNum Position 72,8
+		Control StaticText Title "Choose Template: " Position 5,28
+		Control PopupMenu Title From Variable Ms_arr_publishedNames Into Mi_TemplateNum ID 201 Position 72,26
+		Control OKButton Position 112,44
+		Control CancelButton Position 156,44
+	
+	' OK button clicked on the dialog, proceed
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		r = LogToFile("user clicked OK")
+		r = LogToFile("map window chosen: " & s_arr_mapperNames(i_MapNum))
+		
+		' get template index number
+		i_index = Mi_arr_publishedIndex(Mi_TemplateNum)
+		
+		' get mapper window attributes
+		Mi_chosenMapperID = WindowID(i_MapNum)
+		f_mapCentreX = MapperInfo(Mi_chosenMapperID,MAPPER_INFO_CENTERX)
+		f_mapCentreY = MapperInfo(Mi_chosenMapperID,MAPPER_INFO_CENTERY)
+		f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+		f_mapMaxY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY)
+		f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+		f_mapMinY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+		f_mapScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE)
+		r = LogToFile("centreX/centreY/maxX/maxY/minX/minY: " & f_mapCentreX & "/" & f_mapCentreY & "/" & f_mapMaxX & "/" & f_mapMaxY & "/" & f_mapMinX & "/" & f_mapMinY)
+		
+		' format chosen template path
+		s_templateToOpen = ApplicationDirectory$() & M_ARR_TEMPLATE_STRUCT(i_index).path
+		r = LogToFile("template to be opened: " & s_templateToOpen)
+		
+		' set the current directory in MapInfo to allow relative paths in template workspaces
+		i_BuffSize = 1024
+		s_Buffer = string$(i_BuffSize, chr$(32))
+		x = GetCurrentDirectory(i_BuffSize, s_Buffer)
+		s_currentDir = s_Buffer
+		lpPathName = ApplicationDirectory$()
+		r = LogToFile("setting MI working directory to: " & lpPathName)
+		lnTempNum = SetCurrentDirectory(lpPathName)
+		If lnTempNum = 0 Then
+			Ms_errMsg = "[OpenTemplate]: Could not set working directory!"
+			Error 478
+		End If
+		
+		' open the chosen template
+		If FileExists(s_templateToOpen) Then
+			Call ProcessTemplateFile(s_templateToOpen)						' process the chosen template workspace before opening
+			
+			' present variable dialog for text objects in template
+			Mi_numDlgFields = UBound(M_ARR_TMPL_FIELDS)
+			If Mi_numDlgFields > 25 Then Mi_numDlgFields = 25 End If		' edge case where the template contains more than 25 variables
+			ReDim M_ARR_TMPL_FIELDS(25)
+			Dialog
+				Title M_ARR_TEMPLATE_STRUCT(i_index).name Height 49+Mi_numDlgFields*18 Calling dialog_onLoad
+				Control StaticText Title M_ARR_TMPL_FIELDS(1).label Position 5,10 Hide ID 48001
+				Control EditText Into M_ARR_TMPL_FIELDS(1).content Value M_ARR_TMPL_FIELDS(1).content Position 70,8 Width 120 Hide ID 48002
+				Control StaticText Title M_ARR_TMPL_FIELDS(2).label Position 5,28 Hide ID 48003
+				Control EditText Into M_ARR_TMPL_FIELDS(2).content Value M_ARR_TMPL_FIELDS(2).content Position 70,26 Width 120 Hide ID 48004
+				Control StaticText Title M_ARR_TMPL_FIELDS(3).label Position 5,46 Hide ID 48005
+				Control EditText Into M_ARR_TMPL_FIELDS(3).content Value M_ARR_TMPL_FIELDS(3).content Position 70,44 Width 120 Hide ID 48006
+				Control StaticText Title M_ARR_TMPL_FIELDS(4).label Position 5,64 Hide ID 48007
+				Control EditText Into M_ARR_TMPL_FIELDS(4).content Value M_ARR_TMPL_FIELDS(4).content Position 70,62 Width 120 Hide ID 48008
+				Control StaticText Title M_ARR_TMPL_FIELDS(5).label Position 5,82 Hide ID 48009
+				Control EditText Into M_ARR_TMPL_FIELDS(5).content Value M_ARR_TMPL_FIELDS(5).content Position 70,80 Width 120 Hide ID 48010
+				Control StaticText Title M_ARR_TMPL_FIELDS(6).label Position 5,100 Hide ID 48011
+				Control EditText Into M_ARR_TMPL_FIELDS(6).content Value M_ARR_TMPL_FIELDS(6).content Position 70,98 Width 120 Hide ID 48012
+				Control StaticText Title M_ARR_TMPL_FIELDS(7).label Position 5,118 Hide ID 48013
+				Control EditText Into M_ARR_TMPL_FIELDS(7).content Value M_ARR_TMPL_FIELDS(7).content Position 70,116 Width 120 Hide ID 48014
+				Control StaticText Title M_ARR_TMPL_FIELDS(8).label Position 5,136 Hide ID 48015
+				Control EditText Into M_ARR_TMPL_FIELDS(8).content Value M_ARR_TMPL_FIELDS(8).content Position 70,134 Width 120 Hide ID 48016
+				Control StaticText Title M_ARR_TMPL_FIELDS(9).label Position 5,154 Hide ID 48017
+				Control EditText Into M_ARR_TMPL_FIELDS(9).content Value M_ARR_TMPL_FIELDS(9).content Position 70,152 Width 120 Hide ID 48018
+				Control StaticText Title M_ARR_TMPL_FIELDS(10).label Position 5,172 Hide ID 48019
+				Control EditText Into M_ARR_TMPL_FIELDS(10).content Value M_ARR_TMPL_FIELDS(10).content Position 70,170 Width 120 Hide ID 48020
+				Control StaticText Title M_ARR_TMPL_FIELDS(11).label Position 5,190 Hide ID 48021
+				Control EditText Into M_ARR_TMPL_FIELDS(11).content Value M_ARR_TMPL_FIELDS(11).content Position 70,188 Width 120 Hide ID 48022
+				Control StaticText Title M_ARR_TMPL_FIELDS(12).label Position 5,208 Hide ID 48023
+				Control EditText Into M_ARR_TMPL_FIELDS(12).content Value M_ARR_TMPL_FIELDS(12).content Position 70,206 Width 120 Hide ID 48024
+				Control StaticText Title M_ARR_TMPL_FIELDS(13).label Position 5,226 Hide ID 48025
+				Control EditText Into M_ARR_TMPL_FIELDS(13).content Value M_ARR_TMPL_FIELDS(13).content Position 70,224 Width 120 Hide ID 48026
+				Control StaticText Title M_ARR_TMPL_FIELDS(14).label Position 5,244 Hide ID 48027
+				Control EditText Into M_ARR_TMPL_FIELDS(14).content Value M_ARR_TMPL_FIELDS(14).content Position 70,242 Width 120 Hide ID 48028
+				Control StaticText Title M_ARR_TMPL_FIELDS(15).label Position 5,262 Hide ID 48029
+				Control EditText Into M_ARR_TMPL_FIELDS(15).content Value M_ARR_TMPL_FIELDS(15).content Position 70,260 Width 120 Hide ID 48030
+				Control StaticText Title M_ARR_TMPL_FIELDS(16).label Position 5,280 Hide ID 48031
+				Control EditText Into M_ARR_TMPL_FIELDS(16).content Value M_ARR_TMPL_FIELDS(16).content Position 70,278 Width 120 Hide ID 48032
+				Control StaticText Title M_ARR_TMPL_FIELDS(17).label Position 5,298 Hide ID 48033
+				Control EditText Into M_ARR_TMPL_FIELDS(17).content Value M_ARR_TMPL_FIELDS(17).content Position 70,296 Width 120 Hide ID 48034
+				Control StaticText Title M_ARR_TMPL_FIELDS(18).label Position 5,316 Hide ID 48035
+				Control EditText Into M_ARR_TMPL_FIELDS(18).content Value M_ARR_TMPL_FIELDS(18).content Position 70,314 Width 120 Hide ID 48036
+				Control StaticText Title M_ARR_TMPL_FIELDS(19).label Position 5,334 Hide ID 48037
+				Control EditText Into M_ARR_TMPL_FIELDS(19).content Value M_ARR_TMPL_FIELDS(19).content Position 70,332 Width 120 Hide ID 48038
+				Control StaticText Title M_ARR_TMPL_FIELDS(20).label Position 5,352 Hide ID 48039
+				Control EditText Into M_ARR_TMPL_FIELDS(20).content Value M_ARR_TMPL_FIELDS(20).content Position 70,350 Width 120 Hide ID 48040
+				Control StaticText Title M_ARR_TMPL_FIELDS(21).label Position 5,370 Hide ID 48041
+				Control EditText Into M_ARR_TMPL_FIELDS(21).content Value M_ARR_TMPL_FIELDS(21).content Position 70,368 Width 120 Hide ID 48042
+				Control StaticText Title M_ARR_TMPL_FIELDS(22).label Position 5,388 Hide ID 48043
+				Control EditText Into M_ARR_TMPL_FIELDS(22).content Value M_ARR_TMPL_FIELDS(22).content Position 70,386 Width 120 Hide ID 48044
+				Control StaticText Title M_ARR_TMPL_FIELDS(23).label Position 5,406 Hide ID 48045
+				Control EditText Into M_ARR_TMPL_FIELDS(23).content Value M_ARR_TMPL_FIELDS(23).content Position 70,404 Width 120 Hide ID 48046
+				Control StaticText Title M_ARR_TMPL_FIELDS(24).label Position 5,424 Hide ID 48047
+				Control EditText Into M_ARR_TMPL_FIELDS(24).content Value M_ARR_TMPL_FIELDS(24).content Position 70,422 Width 120 Hide ID 48048
+				Control StaticText Title M_ARR_TMPL_FIELDS(25).label Position 5,442 Hide ID 48049
+				Control EditText Into M_ARR_TMPL_FIELDS(25).content Value M_ARR_TMPL_FIELDS(25).content Position 70,440 Width 120 Hide ID 48050
+				Control StaticText Title "Map Scale: " Position 5,10+Mi_numDlgFields*18
+				Control PopUpMenu Title "Fit to Extents;Keep Current Scale;1:1,250;1:2,500;1:5,000;1:10,000;1:25,000;1:50,000;1:100,000;1:250,000;1:500,000;1:1,000,000" Into Mi_scaleNo Position 70,8+Mi_numDlgFields*18
+				Control OKButton Position 108,28+Mi_numDlgFields*18
+				Control CancelButton Position 152,28+Mi_numDlgFields*18
+			
+			' OK button clicked on the dialog, proceed
+			If CommandInfo(CMD_INFO_DLG_OK) Then			
+				r = LogToFile("user clicked OK")
+				' open template tables into Mapinfo
+				Set Handler WinChangedHandler Off
+				r = LogToFile("opening queued template tables")
+				For i = 1 to UBound(Ms_arr_openTableStatements)
+					Run Command Ms_arr_openTableStatements(i)
+				Next
+				' open template workspace
+				r = LogToFile("opening template file")
+				Run Application s_templateToOpen
+				Set Handler WinChangedHandler On
+				' grab layout window ID
+				If WindowInfo(FrontWindow(),WIN_INFO_TYPE) = WIN_LAYOUT Then
+					Mi_layoutWindowID = WindowID(FrontWindow())
+				End If
+				
+				' check that the template opened ok. if not, we have a major problem
+				If Mi_layoutWindowID = 0 Then
+					Ms_errMsg = "[OpenTemplate]: Error getting layout ID"
+					Error 478
+				Else
+					r = LogToFile("main layout window: " & WindowInfo(Mi_layoutWindowID, WIN_INFO_NAME) & " (" & Mi_layoutWindowID & ")")
+				End If
+			Else
+				Goto openTemplateDlg
+			End If
+		Else
+			Ms_errMsg = "[OpenTemplate]: Could not find the chosen template"
+			Error 478
+		End If
+		Mi_openTemplateID = M_ARR_TEMPLATE_STRUCT(i_index).id
+		r = LogToFile("template file " & s_templateToOpen & " opened successfully")
+		
+		' set the current directory back to the one the user had been working in
+		lpPathName = s_currentDir
+		r = LogToFile("re-setting working directory to: " & lpPathName)
+		lnTempNum = SetCurrentDirectory(lpPathName)
+		If lnTempNum = 0 Then
+			Ms_errMsg = "[OpenTemplate]: Could not re-set current directory"
+			Error 478
+		End If
+		
+		' note table names that have been opened by the template
+		ReDim Ms_arr_tablesToClose(0)
+		For i = 1 to UBound(Ms_arr_openTableStatements)
+			i_startChar = InStr(1, Ms_arr_openTableStatements(i), "As ") + 3
+			i_endChar = InStr(i_startChar, Ms_arr_openTableStatements(i), " Interactive")
+			ReDim Ms_arr_tablesToClose(i)
+			Ms_arr_tablesToClose(i) = Mid$(Ms_arr_openTableStatements(i), i_startChar, i_endChar - i_startChar)
+		Next
+		
+		' note map window IDs that have been opened by the template
+		ReDim Mi_arr_windowsToClose(0)
+		For i = 1 to NumWindows()
+			If WindowInfo(i,WIN_INFO_TYPE) = WIN_MAPPER Then
+				l_flag = FALSE
+				For j = 1 to UBound(s_arr_mapperNames)
+					If WindowInfo(i,WIN_INFO_NAME) = s_arr_mapperNames(j) Then l_flag = TRUE End If
+				Next
+				If Not l_flag Then
+					i_bound = UBound(Mi_arr_windowsToClose) + 1
+					ReDim Mi_arr_windowsToClose(i_bound)
+					Mi_arr_windowsToClose(i_bound) = WindowID(i)
+				End If
+			End If
+		Next
+		
+		r = LogToFile("template tables and windows stored for cleanup")
+		
+		Set CoordSys Layout Units "in"												' make sure the layout measurements are in inches
+		Set Window Mi_layoutWindowID Title M_ARR_TEMPLATE_STRUCT(i_index).name		' set layout window name
+		
+		' update layout objects
+		Set Handler WinChangedHandler Off
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		r = LogToFile("setting up layout objects in: " & s_layoutTableName)
+		a_theObject = s_layoutTableName & ".obj"
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		Fetch First from s_layoutTableName
+		Do While Not EOT(s_layoutTableName)
+			i_theRowNumber = a_theRowNumber
+			o_theObject = a_theObject
+			' replace empty map frames with the mapper chosen by the user
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				If ObjectInfo(o_theObject, OBJ_INFO_FRAMEWIN) = 0 Then
+					r = LogToFile("filling empty frame with user map")
+					Alter Object o_theObject Info OBJ_INFO_FRAMEWIN, Mi_chosenMapperID
+					Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+				End If
+			End If
+			' replace variable text objects with their respective strings
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_TEXT Then
+				Dim s_objTextStr as String
+				For i = 1 to Mi_numDlgFields
+					s_objTextStr = ObjectInfo(o_theObject, OBJ_INFO_TEXTSTRING)
+					If InStr(1, s_objTextStr, M_ARR_TMPL_FIELDS(i).name) Then
+						i_startChar = InStr(1, s_objTextStr, "%%")
+						Alter Object o_theObject Info OBJ_INFO_TEXTSTRING, M_ARR_TMPL_FIELDS(i).content & " "
+						Update s_layoutTableName Set obj = o_theObject Where rowid = i_theRowNumber
+						r = LogToFile("""" & s_objTextStr & """ replaced with """ & M_ARR_TMPL_FIELDS(i).content & """")
+						Exit For
+					End If
+				Next
+			End If
+			Fetch Next from s_layoutTableName
+		Loop
+		Set Handler WinChangedHandler On
+		
+		' select the largest map frame in the layout
+		Call SelectLargestMapFrame
+		r = LogToFile("<< returning to OpenTemplate")
+		' set the map scale for this frame to the scale chosen by the user
+		Set Distance Units "km"
+		Set CoordSys Layout Units "cm"
+		Set Paper Units "cm"
+		f_mapperAspectRatio = (f_mapMaxX - f_mapMinX) / (f_mapMaxY - f_mapMinY)
+		f_frameMaxX = ObjectGeography(Selection.obj, OBJ_GEO_MAXX)
+		f_frameMinX = ObjectGeography(Selection.obj, OBJ_GEO_MINX)
+		r = LogToFile("frameMaxX/frameMinX: " & f_frameMaxX & "/" & f_frameMinX)
+		f_frameAspectRatio = (f_frameMaxX - f_frameMinX) / (ObjectGeography(Selection.obj, OBJ_GEO_MAXY) - ObjectGeography(Selection.obj, OBJ_GEO_MINY))
+		r = LogToFile("mapper zoom: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM))
+		r = LogToFile("mapper scale: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE))
+		r = LogToFile("map width/height/aspect ratio: " & (f_mapMaxX - f_mapMinX) & "/" & (f_mapMaxY - f_mapMinY) & "/" & f_mapperAspectRatio)
+		r = LogToFile("frame width/height/aspect ratio: " & (f_frameMaxX - f_frameMinX) & "/" & (ObjectGeography(Selection.obj, OBJ_GEO_MAXY) - ObjectGeography(Selection.obj, OBJ_GEO_MINY)) & "/" & f_frameAspectRatio)
+		Set Handler WinChangedHandler Off
+		If Mi_scaleNo = 1 Then
+			' Fit to Layout has been chosen by the user
+			r = LogToFile("(f_mapperAspectRatio / f_frameAspectRatio): " & (f_mapperAspectRatio / f_frameAspectRatio))
+			' compare aspect ratios of mapper and frame
+			If f_mapperAspectRatio < f_frameAspectRatio Then
+				r = LogToFile("mapper is tall and narrow compared to frame, fitting height")
+				f_mapScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE) / (f_mapperAspectRatio / f_frameAspectRatio)
+				Set Map Window Mi_chosenMapperID Scale 1 Units "cm" For (f_mapScale) Units "km"
+			Else
+				r = LogToFile("mapper is short and wide compared to frame, fitting width")
+			End If
+		ElseIf Mi_scaleNo = 2 Then
+			' Keep Current Scale has been chosen by the user
+			Set Map Window Mi_chosenMapperID Scale 1 Units "cm" For (f_mapScale) Units "km"
+		Else
+			' use the corresponding scale from the dialog
+			r = LogToFile("setting frame scale 1:" & i_arr_mapScales(Mi_scaleNo - 2))
+			f_mapWidth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM)									' map width in km
+			f_mapScale = i_arr_mapScales(Mi_scaleNo - 2) / 100000											' map scale in km
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+			f_mapWidth = f_mapWidth / (f_frameScale / f_mapScale)											' map width adjusted by relationship between map and frame scales
+			Set Map Window Mi_chosenMapperID Zoom f_mapWidth Units "km"
+			r = LogToFile("mapper scale: " & MapperInfo(Mi_chosenMapperID, MAPPER_INFO_SCALE))
+		End If
+		Run Menu Command M_QUERY_UNSELECT		' deselect the map frame
+		Set Handler WinChangedHandler On
+		
+		' add copyright statements to the layout
+		Call DrawCopyrightObjects
+		r = LogToFile("<< returning to OpenTemplate")
+		If Err() > 0 Then Goto ErrorHandler End If
+		
+		' update any inset map frames
+		Call UpdateInsetFrames
+		r = LogToFile("<< returning to OpenTemplate")
+		If Err() > 0 Then Goto ErrorHandler End If
+		
+		' remove close button from window to ensure the user uses the powys toolbar
+		Set Window FrontWindow( ) SysMenuClose Off
+		
+		r = LogToFile("openTemplate complete, layout has ID " & Mi_layoutWindowID)
+		
+		' enable / disable toolbar buttons
+		Alter Button ID 5001 Disable						' create layout
+		Alter Button ID 5002 Enable							' close layout
+		Alter Button ID 5003 Enable							' toggle grid
+		Alter Button ID 5004 Enable							' toggle scalebar
+		
+	Else
+		r = LogToFile("user cancelled out of New Layout dialog")
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' ProcessTemplateFile - Collects info from template workspace and returns altered filepath
+' ================================================================================
+Sub ProcessTemplateFile (s_filePath as String)
+	OnError Goto ErrorHandler
+	r = LogToFile("entering ProcessTemplateFile subroutine >>")
+	
+	Dim s_tempWorkspace, s_fileInput, s_Buffer, s_UserName as String
+	Dim i, j, x, i_startChar, i_endChar, i_BuffSize, i_bound as Integer
+	
+	' get username from Win API
+	i_BuffSize = 1024
+	s_Buffer = string$(i_BuffSize, chr$(32))
+	x = GetUserName(s_Buffer, i_BuffSize)
+	s_UserName = s_Buffer
+	
+	ReDim M_ARR_TMPL_FIELDS(0)
+	s_tempWorkspace = PathToDirectory$(TempFileName$("")) & "temporaryWorkspace.wor"
+	r = LogToFile("Rewriting workspace into: " & s_tempWorkspace)
+	OnError Goto CloseFile
+	Open File s_filePath For Input as #1
+	Open File s_tempWorkspace For Output as #2
+	Line Input #1, s_fileInput
+	ReDim Ms_arr_openTableStatements(0)
+	Do While Not EOF(1)
+		' push all 'Open Table' statements into an array
+		If Left$(s_fileInput, 12) = "Open Table """ Then
+			i_startChar = InStr(1, s_fileInput, "As ") + 3
+			i_endChar = InStr(i_startChar, s_fileInput, " Interactive")
+			' queue open table statement if the table isn't already open
+			If NOT TabFileIsOpen(Mid$(s_fileInput, i_startChar, i_endChar - i_startChar)) Then
+				i_bound = UBound(Ms_arr_openTableStatements) + 1
+				ReDim Ms_arr_openTableStatements(i_bound)
+				Ms_arr_openTableStatements(i_bound) = s_fileInput
+				r = LogToFile("queued statement: " & Ms_arr_openTableStatements(i_bound))
+			End If
+		Else
+			Print #2, s_fileInput
+			' capture text variables from template for use in the new layout dialog
+			If InStr(1, s_fileInput, "%%") Then
+				i_startChar = InStr(1, s_fileInput, """") + 1
+				i_endChar = InStr(1, s_fileInput, "%%")
+				' check for duplicate field before storing
+				For j = 1 To UBound(M_ARR_TMPL_FIELDS)
+					If M_ARR_TMPL_FIELDS(j).label = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar) Then
+						r = LogToFile("duplicate field found, discarding: " & s_fileInput)
+						Goto discardField
+					End If
+				Next
+				i = UBound(M_ARR_TMPL_FIELDS) + 1
+				ReDim M_ARR_TMPL_FIELDS(i)
+				M_ARR_TMPL_FIELDS(i).label = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar) & ": "
+				i_startChar = i_endChar
+				i_endChar = Len(s_fileInput)
+				M_ARR_TMPL_FIELDS(i).name = Mid$(s_fileInput, i_startChar, i_endChar - i_startChar)
+				' if this template variable contains no label then use the variable name as a label for the dialog instead
+				If M_ARR_TMPL_FIELDS(i).label = ": " Then M_ARR_TMPL_FIELDS(i).label = Proper$(Right$(M_ARR_TMPL_FIELDS(i).name, Len(M_ARR_TMPL_FIELDS(i).name) - 2)) & ": " End If
+				' pre-load text variables
+				If M_ARR_TMPL_FIELDS(i).name = "%%username" Then M_ARR_TMPL_FIELDS(i).content = s_UserName End If
+				If M_ARR_TMPL_FIELDS(i).name = "%%date" Then M_ARR_TMPL_FIELDS(i).content = Format$(Day(CurDate()), "00") & "/" & Format$(Month(CurDate()), "00") & "/" & Format$(Year(CurDate()), "0000") End If
+				If M_ARR_TMPL_FIELDS(i).name = "%%time" Then M_ARR_TMPL_FIELDS(i).content = Time(24) End If
+				r = LogToFile("template variable " & M_ARR_TMPL_FIELDS(i).name & " found")
+			End If
+			discardField:
+		End If
+		Line Input #1, s_fileInput
+	Loop
+	Close File #1
+	Close File #2
+	OnError Goto ErrorHandler
+	
+	s_filePath = s_tempWorkspace
+	r = LogToFile("<< leaving ProcessTemplateFile subroutine")
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	CloseFile:
+		Close File #1
+		Close File #2
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' dialog_onLoad - Called when template open dialog is loaded
+' ================================================================================
+Sub dialog_onLoad
+	r = LogToFile("entering dialog_onLoad function >>")
+	
+	' alter visibility of controls on dialog
+	Dim i as Integer
+	For i = 1 to Mi_numDlgFields * 2
+		Alter Control (48000+i) Show
+	Next
+
+	r = LogToFile("<< leaving dialog_onLoad function")
+End Sub
+' ================================================================================
+
+' TabFileIsOpen - Returns TRUE if the tab file is open in Mapinfo, FALSE if not
+' ================================================================================
+Function TabFileIsOpen (ByVal s_tabname as String) as Logical
+	Dim i as Integer
+	Dim l_flag as Logical
+	
+	l_flag = FALSE
+	For i = 1 to NumTables()
+		If TableInfo(i, TAB_INFO_NAME) = s_tabname Then
+			l_flag = TRUE
+		End If
+	Next
+	TabFileIsOpen = l_flag
+	
+End Function
+' ================================================================================
+
+' ToggleGrid - Displays or hides a grid on the template
+' ================================================================================
+Sub ToggleGrid
+	r = LogToFile("entering ToggleGrid subroutine >>")
+	
+	' toggle grid button status
+	Ml_gridButtonStatus = 1 - Ml_gridButtonStatus
+	
+	If Ml_gridButtonStatus = 1 Then
+		' button has been pressed in, add a grid
+		Call DrawGridObjects (FALSE, TRUE)
+		r = LogToFile("<< returning to ToggleGrid")
+		' ensure grid toggle button is checked
+		Alter Button ID 5003 Check
+	Else
+		' button has been pulled out, clear the grid
+		Call DrawGridObjects (TRUE, FALSE)
+		r = LogToFile("<< returning to ToggleGrid")
+		' ensure grid toggle button is unchecked
+		Alter Button ID 5003 Uncheck
+	End If
+	
+End Sub
+' ================================================================================
+
+' DrawGridObjects - Clears / Draws grid objects on the largest frame on the layout
+' ================================================================================
+Sub DrawGridObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+	OnError Goto ErrorHandler
+	r = LogToFile("entering DrawGridObjects subroutine >>")
+	
+	' vars
+	Dim a_theRowNumber as Alias
+	Dim s_layoutTableName as String
+	Dim f_mapperWidth_earth, f_mapperHeight_earth As Float
+	Dim f_frameLeftEdge_paper, f_frameTopEdge_paper, f_frameRightEdge_paper, f_frameBottomEdge_paper, f_frameWidth_paper, f_frameHeight_paper as Float
+	Dim f_frameLeftEdge_earth, f_frameBottomEdge_earth, f_frameRightEdge_earth, f_frameTopEdge_earth, f_frameWidth_earth, f_frameHeight_earth As Float
+	Dim f_frameScale, f_halfFrameWidth_earth, f_halfFrameHeight_earth As Float
+	Dim f_startDifferenceX, f_startDifferenceY, f_endDifferenceX, f_endDifferenceY As Float
+	Dim f_layoutStartDifferenceX, f_layoutStartDifferenceY, f_layoutEndDifferenceX, f_layoutEndDifferenceY As Float
+	Dim f_gridStartX_earth, f_gridStartY_earth, f_gridEndX_earth, f_gridEndY_earth As Float
+	Dim f_gridStartX_paper, f_gridStartY_paper, f_gridEndX_paper, f_gridEndY_paper as Float
+	Dim f_gridSpacingX_paper, f_gridSpacingY_paper, f_gridSize_earth As Float
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		' get the layout table name
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		
+		If l_clear Then
+			Set Handler WinChangedHandler Off
+			
+			' check to see if a grid has been created
+			If Mi_gridObjsMax > Mi_gridObjsMin Then
+				' remove grid objects
+				Select * From s_layoutTableName Where rowid > Mi_gridObjsMin AND rowid <= Mi_gridObjsMax
+				If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+					r = LogToFile("deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME))
+					Delete From SelectionInfo(SEL_INFO_SELNAME)
+				End If
+				' reset grid object tracking
+				Mi_gridObjsMin = 0
+				Mi_gridObjsMax = 0
+			End If
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+		If l_draw Then
+			Set Handler WinChangedHandler Off
+			
+			a_theRowNumber = s_layoutTableName & ".rowid"
+			' track grid objects
+			Fetch Last From s_layoutTableName
+			Mi_gridObjsMin = a_theRowNumber
+			r = LogToFile("grid start row: " & Mi_gridObjsMin)
+			
+			' select frame to draw the grid onto
+			Call SelectLargestMapFrame
+			r = LogToFile("<< returning to DrawGridObjects")
+			
+			'Return width and height of mapper
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_mapperWidth_earth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX) - MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+			f_mapperHeight_earth = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY) - MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+			r = LogToFile("f_mapperWidth_earth = " & f_mapperWidth_earth & "m")
+			r = LogToFile("f_mapperHeight_earth = " & f_mapperHeight_earth & "m")
+			
+			'Return the minimum and maximum coordinates and width and height of the selected frame in the layout
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			f_frameLeftEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MINX)
+			f_frameRightEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MAXX)
+			f_frameTopEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MINY)
+			f_frameBottomEdge_paper = ObjectGeography(selection.obj, OBJ_GEO_MAXY)
+			f_frameWidth_paper = f_frameRightEdge_paper - f_frameLeftEdge_paper
+			f_frameHeight_paper = f_frameBottomEdge_paper - f_frameTopEdge_paper
+			r = LogToFile("f_frameLeftEdge_paper / f_frameRightEdge_paper / f_frameTopEdge_paper / f_frameBottomEdge_paper / f_frameWidth_paper / f_frameHeight_paper")
+			r = LogToFile(f_frameLeftEdge_paper & "cm / " & f_frameRightEdge_paper & "cm / " & f_frameTopEdge_paper & "cm / " & f_frameBottomEdge_paper & "cm / " & f_frameWidth_paper & "cm / " & f_frameHeight_paper & "cm")
+			
+			'Find the scale of the layout window
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameWidth_paper
+			r = LogToFile("f_frameScale = " & f_frameScale)
+			
+			'Calculate layout distance in ground units
+			f_halfFrameWidth_earth = (f_frameScale * f_frameWidth_paper / 2) / 100
+			f_halfFrameHeight_earth = (f_frameScale * f_frameHeight_paper / 2) / 100
+			r = LogToFile("f_halfFrameWidth_earth = " & f_halfFrameWidth_earth & "m")
+			r = LogToFile("f_halfFrameHeight_earth = " & f_halfFrameHeight_earth & "m")
+			
+			'Workout the layout map extents in ground units
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_frameLeftEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX) - f_halfFrameWidth_earth)
+			f_frameRightEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX) + f_halfFrameWidth_earth)
+			f_frameTopEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY) + f_halfFrameHeight_earth)
+			f_frameBottomEdge_earth = (MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY) - f_halfFrameHeight_earth)
+			f_frameWidth_earth = f_frameRightEdge_earth - f_frameLeftEdge_earth
+			f_frameHeight_earth = f_frameTopEdge_earth - f_frameBottomEdge_earth
+			r = LogToFile("f_frameLeftEdge_earth / f_frameRightEdge_earth / f_frameBottomEdge_earth / f_frameTopEdge_earth / f_frameWidth_earth / f_frameHeight_earth")
+			r = LogToFile(f_frameLeftEdge_earth & "m / " & f_frameRightEdge_earth & "m / " & f_frameBottomEdge_earth & "m / " & f_frameTopEdge_earth & "m / " & f_frameWidth_earth & "m / " & f_frameHeight_earth & "m")
+			
+			'Calculate best fit for grid size
+			f_gridSize_earth = 100000
+			If f_frameScale > 1000000 AND f_frameScale <= 2000000 Then f_gridSize_earth = 50000
+			ElseIf f_frameScale > 500000 AND f_frameScale <= 1000000 Then f_gridSize_earth = 25000
+			ElseIf f_frameScale > 200000 AND f_frameScale <= 500000 Then f_gridSize_earth = 10000
+			ElseIf f_frameScale > 100000 AND f_frameScale <= 200000 Then f_gridSize_earth = 5000
+			ElseIf f_frameScale > 50000 AND f_frameScale <= 100000 Then f_gridSize_earth = 2500
+			ElseIf f_frameScale > 20000 AND f_frameScale <= 50000 Then f_gridSize_earth = 1000
+			ElseIf f_frameScale > 10000 AND f_frameScale <= 20000 Then f_gridSize_earth = 500
+			ElseIf f_frameScale > 5000 AND f_frameScale <= 10000 Then f_gridSize_earth = 250
+			ElseIf f_frameScale > 2000 AND f_frameScale <= 5000 Then f_gridSize_earth = 100
+			ElseIf f_frameScale > 1000 AND f_frameScale <= 2000 Then f_gridSize_earth = 50
+			ElseIf f_frameScale <= 1000 Then f_gridSize_earth = 20
+			End if
+			' do not draw a grid if zoomed in too close
+			If f_frameScale <= 100 Then
+				Set Handler WinChangedHandler On
+				Exit Sub
+			End If
+			r = LogToFile("grid Size = " + f_gridSize_earth & "m")
+			
+			' calculate extents for grid in metres
+			f_gridStartX_earth = Round(f_frameLeftEdge_earth, f_gridSize_earth)
+			f_gridEndX_earth = Round(f_frameRightEdge_earth, f_gridSize_earth)
+			f_gridStartY_earth = Round(f_frameTopEdge_earth, f_gridSize_earth)
+			f_gridEndY_earth = Round(f_frameBottomEdge_earth, f_gridSize_earth)
+			' tweak grid extents if outside frame extents
+			If f_gridStartX_earth <= f_frameLeftEdge_earth Then f_gridStartX_earth = f_gridStartX_earth + f_gridSize_earth End if
+			If f_gridEndX_earth >= f_frameRightEdge_earth Then f_gridEndX_earth = f_gridEndX_earth - f_gridSize_earth End if
+			If f_gridStartY_earth >= f_frameTopEdge_earth Then f_gridStartY_earth = f_gridStartY_earth - f_gridSize_earth End if
+			If f_gridEndY_earth <= f_frameBottomEdge_earth Then f_gridEndY_earth = f_gridEndY_earth + f_gridSize_earth End if
+			r = LogToFile("f_gridStartX_earth / f_gridStartY_earth / f_gridEndX_earth / f_gridEndY_earth")
+			r = LogToFile(f_gridStartX_earth & "m /" & f_gridStartY_earth & "m /" & f_gridEndX_earth & "m /" & f_gridEndY_earth & "m")
+			
+			'Calculate positions of labels and lines in layout units
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"			
+			f_gridStartX_paper = (f_gridStartX_earth - f_frameLeftEdge_earth) * 100 / f_frameScale + f_frameLeftEdge_paper
+			f_gridEndX_paper = f_frameRightEdge_paper - ((f_frameRightEdge_earth - f_gridEndX_earth) * 100 / f_frameScale)
+			f_gridStartY_paper = (f_frameTopEdge_earth - f_gridStartY_earth) * 100 / f_frameScale + f_frameTopEdge_paper ' (297377.72m - 297000m) * 100 / 49998.65 + 1.50107cm = 2.2565cm
+			f_gridEndY_paper = f_frameBottomEdge_paper - ((f_gridEndY_earth - f_frameBottomEdge_earth) * 100 / f_frameScale) ' 24.5727cm - ((286000m - 285842.2m) * 100 / 49998.65) = 24.2571cm
+
+			r = LogToFile("f_gridStartX_paper / f_gridEndX_paper / f_gridStartY_paper / f_gridEndY_paper")
+			r = LogToFile(f_gridStartX_paper & "cm /" & f_gridEndX_paper & "cm /" & f_gridStartY_paper & "cm /" & f_gridEndY_paper & "cm")
+			
+			'Grid spacing on the layout
+			f_gridSpacingX_paper = (f_gridSize_earth / f_frameWidth_earth) * f_frameWidth_paper
+			f_gridSpacingY_paper = (f_gridSize_earth / f_frameHeight_earth) * f_frameHeight_paper
+			r = LogToFile("f_gridSpacingX_paper = " & f_gridSpacingX_paper)
+			r = LogToFile("f_gridSpacingX_paper = " & f_gridSpacingY_paper)
+			
+			' DRAW-GRID-OBJECTS-INTO-LAYOUT------------------------------------
+			Dim f_currentLayoutCoord, f_coordOffset, f_currentMapCoord As Float 
+			Dim i_gridLabelLength, i_firstGridLabelChar as Integer
+			
+			' set length of grid labels
+			If Mi_gridLabelFormat = 1 Then
+				i_gridLabelLength = 6
+				i_firstGridLabelChar = 1
+				f_coordOffset = 0.5
+			ElseIf	Mi_gridLabelFormat = 2 Then
+				i_gridLabelLength = 2
+				i_firstGridLabelChar = 2
+				f_coordOffset = 0.15
+			ElseIf	Mi_gridLabelFormat = 3 Then
+				i_gridLabelLength = 5
+				i_firstGridLabelChar = 2
+				f_coordOffset = 0.4
+			End If
+			
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			
+			' Draw objects on X axis
+			f_currentLayoutCoord = f_gridStartX_paper
+			f_currentMapCoord = f_gridStartX_earth
+			Do While f_currentLayoutCoord <= f_frameRightEdge_paper
+				' at this x value (easting), create a label
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord), i_firstGridLabelChar, i_gridLabelLength)
+					(f_currentLayoutCoord - f_coordOffset, f_frameBottomEdge_paper + 0.1) (1000, 1000)
+					Font Mf_gridLabelFont
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord), i_firstGridLabelChar, i_gridLabelLength)
+					(f_currentLayoutCoord - f_coordOffset, f_frameTopEdge_paper - 0.5) (1000, 1000)
+					Font Mf_gridLabelFont
+				' draw tick marks
+				Create Point Into Window Mi_layoutWindowID (f_currentLayoutCoord, f_frameTopEdge_paper) Symbol (49, Black, 12)
+				Create Point Into Window Mi_layoutWindowID (f_currentLayoutCoord, f_frameBottomEdge_paper - 0.005) Symbol (49, Black, 12)
+				If Ml_drawGridLines Then
+					' draw grid line
+					Create Line Into Window Mi_layoutWindowID 
+						(f_currentLayoutCoord, f_frameTopEdge_paper) (f_currentLayoutCoord, f_frameBottomEdge_paper)
+						Pen Mp_gridLineStyle
+				End If
+				' increment x position
+				f_currentLayoutCoord = f_currentLayoutCoord + f_gridSpacingX_paper
+				f_currentMapCoord = f_currentMapCoord + f_gridSize_earth
+				Update Window Mi_layoutWindowID
+			Loop
+			
+			' Draw objects on Y axis
+			f_currentLayoutCoord = f_gridStartY_paper
+			f_currentMapCoord = f_gridStartY_earth
+			Do While f_currentLayoutCoord <= f_frameBottomEdge_paper 
+				' at this y value (northing), create a label
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord),i_firstGridLabelChar,i_gridLabelLength)
+					(f_frameLeftEdge_paper - 0.5, f_currentLayoutCoord + f_coordOffset) (1000, 1000)
+					Font Mf_gridLabelFont
+					Angle 90
+				Create Text Into Window Mi_layoutWindowID
+					Mid$(Str$(f_currentMapCoord),i_firstGridLabelChar,i_gridLabelLength)
+					(f_frameRightEdge_paper + 0.1, f_currentLayoutCoord + f_coordOffset) (1000, 1000)
+					Font Mf_gridLabelFont
+					Angle 90
+				' draw tick marks
+				Create Point Into Window Mi_layoutWindowID (f_frameLeftEdge_paper, f_currentLayoutCoord) Symbol (49, Black, 12) 
+				Create Point Into Window Mi_layoutWindowID (f_frameRightEdge_paper - 0.005, f_currentLayoutCoord) Symbol (49, Black, 12)
+				If Ml_drawGridLines Then
+					' draw grid line
+					Create Line Into Window Mi_layoutWindowID
+						(f_frameLeftEdge_paper, f_currentLayoutCoord) (f_frameRightEdge_paper, f_currentLayoutCoord)
+						Pen Mp_gridLineStyle 
+				End If
+				' increment y position
+				f_currentLayoutCoord = f_currentLayoutCoord + f_gridSpacingY_paper
+				f_currentMapCoord = f_currentMapCoord - f_gridSize_earth
+				Update Window Mi_layoutWindowID
+			Loop
+			
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			
+			' deselect the map frame
+			Set Handler WinChangedHandler Off
+			Run Menu Command M_QUERY_UNSELECT ' from menu.def
+			Set Handler WinChangedHandler On
+
+			' track grid objects
+			Fetch Last From s_layoutTableName
+			Mi_gridObjsMax = a_theRowNumber
+			r = LogToFile("grid end row: " & Mi_gridObjsMax)
+			
+			Set Handler WinChangedHandler On
+		End If
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' ToggleScaleBar - Displays or hides the scalebar on the template
+' ================================================================================
+Sub ToggleScaleBar
+	r = LogToFile("entering ToggleScaleBar subroutine >>")
+	
+	' toggle scalebar button status
+	Ml_scaleButtonStatus = 1 - Ml_scaleButtonStatus
+	
+	If Ml_scaleButtonStatus = 1 Then
+		' button has been pressed in, add a scalebar
+		Call DrawScaleBarObjects (FALSE, TRUE)
+		r = LogToFile("<< returning to ToggleScaleBar")
+		' ensure grid toggle button is checked
+		Alter Button ID 5004 Check
+	Else
+		' button has been pulled out, clear the grid
+		Call DrawScaleBarObjects (TRUE, FALSE)
+		r = LogToFile("<< returning to ToggleScaleBar")
+		' ensure grid toggle button is unchecked
+		Alter Button ID 5004 Uncheck
+	End If
+	
+End Sub
+' ================================================================================
+
+' DrawScaleBarObjects - Clears / Draws scalebar objects on the largest frame on the layout
+' ================================================================================
+Sub DrawScaleBarObjects (ByVal l_clear as Logical, ByVal l_draw as Logical)
+	OnError Goto ErrorHandler
+	r = LogToFile("entering DrawScaleBarObjects subroutine >>")
+	
+	' vars
+	Dim a_theRowNumber, a_theObject as Alias
+	Dim s_layoutTableName, s_scaleText as String
+	Dim o_theObject as Object
+	Dim f_frameMinX,f_frameMinY,f_frameMaxX,f_frameMaxY,f_frameScale,f_startX, f_startY as Float
+	Dim f_mapMinX, f_mapMaxX, f_endX, f_endY as Float
+	Dim i as Integer
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		' get the layout table name
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		
+		If l_clear Then
+			Set Handler WinChangedHandler Off
+		
+			' check to see if a scalebar has been created
+			If Mi_scalebarObjsMax > Mi_scalebarObjsMin Then
+				' remove grid objects
+				Select * From s_layoutTableName Where rowid > Mi_scalebarObjsMin AND rowid <= Mi_scalebarObjsMax
+				If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+					r = LogToFile("deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME))
+					Delete From SelectionInfo(SEL_INFO_SELNAME)
+				End If
+				' reset grid object tracking
+				Mi_scalebarObjsMin = 0
+				Mi_scalebarObjsMax = 0
+			End If
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+		If l_draw Then
+			Set Handler WinChangedHandler Off
+			
+			' get mapper information
+			Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+			f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+			f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+			
+			a_theRowNumber = s_layoutTableName & ".rowid"
+			a_theObject = s_layoutTableName & ".obj"
+			' track scalebar objects
+			Fetch Last From s_layoutTableName
+			Mi_scalebarObjsMin = a_theRowNumber
+			r = LogToFile("scalebar start row: " & Mi_scalebarObjsMin)
+			
+			' select the largest map frame in the layout
+			Call SelectLargestMapFrame
+			r = LogToFile("<< returning to DrawScaleBarObjects")
+			' get information about the frame and mapper associated with it
+			o_theObject = Selection.col1
+			Set Coordsys Layout Units "cm"
+			Set Distance units "cm"
+			f_frameMinX = ObjectGeography(o_theObject, OBJ_GEO_MINX)
+			f_frameMinY = ObjectGeography(o_theObject, OBJ_GEO_MINY)
+			f_frameMaxX = ObjectGeography(o_theObject, OBJ_GEO_MAXX)
+			f_frameMaxY = ObjectGeography(o_theObject, OBJ_GEO_MAXY)
+			f_frameScale = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)
+			r = LogToFile("f_frameMinX | f_frameMinY | f_frameMaxX | f_frameMaxY | f_frameScale: " & f_frameMinX & " | " & f_frameMinY & " | " & f_frameMaxX & " | " & f_frameMaxY & " | " & f_frameScale)
+			
+			Dim f_widthInLayout, f_widthInMapper, f_reducedWidth, f_thisDiff, f_prevDiff as Float
+			Dim i_fixedCommonLog, i_valuesList(4), i_closest as Integer
+			
+			' set desired scalebar width to 6 cm
+			f_widthInLayout = 6
+			r = LogToFile("desired scalebar width set to: " & f_widthInLayout & " cm")
+			' work out scalebar width in ground units (cm)
+			f_widthInMapper = f_widthInLayout * f_frameScale
+			r = LogToFile("scalebar width on ground: " & f_widthInMapper & " cm")
+			' round scalebar width
+			i_fixedCommonLog = Fix(Log(f_widthInMapper) / Log(10))
+			r = LogToFile("common log (fixed) of ground width: " & i_fixedCommonLog)
+			' reduce ground width to between 0 and 10
+			f_reducedWidth = f_widthInMapper / (10 ^ i_fixedCommonLog)
+			r = LogToFile("width value reduced to less than 10: " & f_reducedWidth)
+			
+			' find the closest number to this reduced width from a list of 'nice' values
+			i_valuesList(1) = 1
+			i_valuesList(2) = 2
+			i_valuesList(3) = 5
+			i_valuesList(4) = 10
+			i_closest = 1
+			f_thisDiff = Abs(f_reducedWidth - 1)
+			For i = 2 to UBound(i_valuesList)
+				f_prevDiff = f_thisDiff
+				f_thisDiff = Abs(f_reducedWidth - i_valuesList(i))
+				If f_thisDiff < f_prevDiff Then i_closest = i End If
+			Next
+			r = LogToFile("closest value in list is: " & i_valuesList(i_closest))
+			f_widthInMapper = i_valuesList(i_closest) * (10 ^ i_fixedCommonLog)
+			r = LogToFile("ground equivalent: " & f_widthInMapper & " cm")
+			
+			' convert scalebar width back to layout units
+			If f_widthInMapper < 100000 Then
+				s_scaleText = (f_widthInMapper / 100) & " m"
+			Else
+				s_scaleText = (f_widthInMapper / 100000) & " km"
+			End If
+			r = LogToFile("scalebar text: " & s_scaleText)
+			f_widthInLayout = f_widthInMapper / f_frameScale
+			r = LogToFile("calculated scalebar width on layout: " & f_widthInLayout & " cm")
+			
+			' if scalebar width on layout is less than 10cm, draw it
+			If f_widthInLayout < 10 Then
+				' scalebar drawing position
+				If Mi_scaleBarPosition = 1 Then ' lower left, draw as normal
+					f_startX = f_frameMinX + 0.2 ' cm in from left edge of frame
+					f_startY = f_frameMaxY - 0.2 ' cm up from bottom of frame
+					r = LogToFile("scalebar start position at lower-left of frame: " & f_startX & "," & f_startY)
+					f_endX = f_startX + f_widthInLayout
+					f_endY = f_startY - 0.3
+					' scalebar background
+					Create Rect Into Window Mi_layoutWindowID (f_startX - 0.15,f_startY + 0.15) (f_endX + 1.25,f_endY - 0.15) Pen MakePen(1,2,BLACK) Brush MakeBrush(2, WHITE, -1)
+					If Mi_scaleBarStyle = 1 Then
+						' tick-bar style scalebar
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_startY) Pen MakePen(1,2,BLACK) ' bottom line
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_startX,f_endY) Pen MakePen(1,2,BLACK) ' left tick
+						Create Line Into Window Mi_layoutWindowID (f_endX,f_startY) (f_endX,f_endY) Pen MakePen(1,2,BLACK) ' right tick
+						Create Line Into Window Mi_layoutWindowID (f_startX + (f_widthInLayout / 2),f_startY) (f_startX + (f_widthInLayout / 2),f_endY + 0.2) Pen MakePen(1,2,BLACK) ' middle tick
+					Else
+						' block-style scalebar
+						Create Rect Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_endY) Brush MakeBrush(2, BLACK, -1)
+					End If
+					' scalebar text
+					Create Text Into Window Mi_layoutWindowID s_scaleText (f_endX + 0.1,f_startY) (f_endX + 5,f_endY - 0.02) Font MakeFont("Arial",0,8,BLACK,-1)
+				Else ' lower right, draw in reverse
+					f_startX = f_frameMaxX - 0.2 ' cm in from right edge of frame
+					f_startY = f_frameMaxY - 0.2 ' cm up from bottom of frame
+					r = LogToFile("scalebar start position at lower-right of frame: " & f_startX & "," & f_startY)
+					f_endX = f_startX - f_widthInLayout
+					f_endY = f_startY - 0.3
+					' scalebar background
+					Create Rect Into Window Mi_layoutWindowID (f_startX + 0.15,f_startY + 0.15) (f_endX - 1.25,f_endY - 0.15) Pen MakePen(1,2,BLACK) Brush MakeBrush(2, WHITE, -1)
+					If Mi_scaleBarStyle = 1 Then
+						' tick-bar style scalebar
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_startY) Pen MakePen(1,2,BLACK) ' bottom line
+						Create Line Into Window Mi_layoutWindowID (f_startX,f_startY) (f_startX,f_endY) Pen MakePen(1,2,BLACK) ' left tick
+						Create Line Into Window Mi_layoutWindowID (f_endX,f_startY) (f_endX,f_endY) Pen MakePen(1,2,BLACK) ' right tick
+						Create Line Into Window Mi_layoutWindowID (f_startX - (f_widthInLayout / 2),f_startY) (f_startX - (f_widthInLayout / 2),f_endY + 0.2) Pen MakePen(1,2,BLACK) ' middle tick
+					Else
+						' block-style scalebar
+						Create Rect Into Window Mi_layoutWindowID (f_startX,f_startY) (f_endX,f_endY) Brush MakeBrush(2, BLACK, -1)
+					End If
+					' scalebar text
+					Create Text Into Window Mi_layoutWindowID s_scaleText (f_endX - 1.1,f_startY) (f_endX,f_endY - 0.02) Font MakeFont("Arial",0,8,BLACK,-1)
+				End If
+			End If
+			
+			' deselect the map frame
+			Set Handler WinChangedHandler Off
+			Run Menu Command M_QUERY_UNSELECT ' from menu.def
+			Set Handler WinChangedHandler On
+			
+			' track scalebar objects
+			Fetch Last From s_layoutTableName
+			Mi_scalebarObjsMax = a_theRowNumber
+			r = LogToFile("scalebar end row: " & Mi_scalebarObjsMax)
+			
+			Set Handler WinChangedHandler On
+		End If
+		
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' DrawCopyrightObjects - Clears and draws copyright statements on the largest frame on the layout
+' ================================================================================
+Sub DrawCopyrightObjects
+	OnError Goto ErrorHandler
+	r = LogToFile("adding copyright objects to layout")
+	
+	' vars
+	Dim s_layoutTableName, s_copyrightsRequired as String
+	Dim i, i_theRowNumber, i_mapperID as Integer
+	Dim o_theObject as Object
+	Dim a_theRowNumber as Alias
+	Dim f_copyrightPositionX, f_copyrightPositionY as Float
+	Dim f_copyrightFont as Font
+	Dim d_date as Date
+	
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		Set Handler WinChangedHandler Off
+		Set Coordsys Layout Units "cm"
+		
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		r = LogToFile("layout cosmetic table: " & s_layoutTableName)
+
+		' remove any copyright objects that have already been created
+		If Mi_copyrightObjsMax > Mi_copyrightObjsMin Then
+			' remove copyright objects
+			r = LogToFile("removing existing copyright objects")
+			Select * From s_layoutTableName Where rowid > Mi_copyrightObjsMin AND rowid <= Mi_copyrightObjsMax
+			If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+				r = LogToFile("deleting " & SelectionInfo(SEL_INFO_NROWS) & " rows from " & SelectionInfo(SEL_INFO_SELNAME))
+				Delete From SelectionInfo(SEL_INFO_SELNAME)
+			End If
+			' reset copyright object tracking
+			Mi_copyrightObjsMin = 0
+			Mi_copyrightObjsMax = 0
+		End If
+		
+		' create aliases for dealing with the layout table
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		
+		' select the largest map frame in the layout
+		Call SelectLargestMapFrame
+		r = LogToFile("<< returning to DrawCopyrightObjects")
+		' grab a copy of the largest frame object
+		o_theObject = Selection.col1
+		
+		' get the top left position of the frame object, plus a small offset for whitespace
+		f_copyrightPositionX = ObjectGeography(o_theObject, OBJ_GEO_MINX) + 0.2
+		f_copyrightPositionY = ObjectGeography(o_theObject, OBJ_GEO_MINY) + 0.2
+		r = LogToFile("copyright position on top left of frame: " & f_copyrightPositionX & "," & f_copyrightPositionY)
+		' get the mapper ID associated with the frame
+		i_mapperID = ObjectInfo(o_theObject, OBJ_INFO_FRAMEWIN)
+		r = LogToFile("mapper in frame has ID: " & i_mapperID)
+		Set Handler WinChangedHandler Off
+		Run Menu Command M_QUERY_UNSELECT ' from menu.def
+		Set Handler WinChangedHandler On
+		
+		' loop over the layers in the mapper
+		s_copyrightsRequired = ""
+		' determine required copyright statements
+		For i = 1 to MapperInfo(i_mapperID, MAPPER_INFO_LAYERS)
+			' r = LogToFile("mapper Layer " & i & " path: " & LayerInfo(i_mapperID, i, LAYER_INFO_PATH))
+			' discount the layer if it's not visible
+			If LayerInfo(i_mapperID, i, LAYER_INFO_DISPLAY) > 0 Then
+				' test layer paths
+				If InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_MASTERMAP")
+					OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_CODEPOINT")
+					OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Ordnance Survey") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|PSMA|" ' layer contains PSMA data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_BoundaryLine")
+					OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_StreetView")
+					OR InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "OS_OpenData") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|OD|" ' layer contains OS Open Data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "ONS") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|ONS|"' layer contains ONS data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "CodePointOpen") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|CPO|" ' layer contains CodePointOpen data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "GetMapping") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|GM|" ' layer contains GetMapping data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Landmark") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|LM|" ' layer contains Landmark data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "WAG_COWI_Aerial") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|COWI|"' layer contains COWI data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Raster\Aerial Photo\2009") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|NP|"' layer contains Next Perspectives data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Intermap") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|IM|"' layer contains Intermap Height data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Environment Agency") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|ENVI|"' layer contains Environment Agency data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "CCW data") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|CCW|"' layer contains CCW data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Forestry Commission") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|FC|"' layer contains Forestry Commission data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "Forestry Commission\FOREST_ESTATE") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|FCEW|"' layer contains Forestry Commission Estate Woodlands data
+				ElseIf InStr(1, LayerInfo(i_mapperID, i, LAYER_INFO_PATH), "WAG Data") Then
+					s_copyrightsRequired = s_copyrightsRequired & "|WG|"' layer contains Welsh Government data
+				Else
+					s_copyrightsRequired = s_copyrightsRequired & "|PCC|"' layer contains other data, stick a PCC copyright on it
+				End If
+			End If
+		Next
+		
+		' place required copyright statements on layout
+		r = LogToFile("copyright codes generated: " & s_copyrightsRequired)
+		d_date = CurDate()
+		f_copyrightFont = MakeFont("Arial",0,6,16711680,16777215)
+		If s_copyrightsRequired <> "" Then
+			' track copyright objects
+			Fetch Last From s_layoutTableName
+			Mi_copyrightObjsMin = a_theRowNumber
+			r = LogToFile("copyrights start row: " & Mi_copyrightObjsMin)
+			
+			If InStr(1, s_copyrightsRequired, "|PSMA|") Then ' PSMA table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright and database rights " & Year(d_date) & " Ordnance Survey 100025371" & Chr$(13) & "© Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) & " Arolwg Ordnans 100025371" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			ElseIf InStr(1, s_copyrightsRequired, "|OD|") OR InStr(1, s_copyrightsRequired, "|ONS|") Then ' OS OpenData or ONS table paths detected, PSMA table paths not detected
+				Create Text Into Window Mi_layoutWindowID "Contains Ordnance Survey data © Crown copyright and database right " & Year(d_date) & Chr$(13) & "Yn cynnwys data Arolwg Ordnans © Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|ONS|") Then ' ONS table paths detected
+				Create Text Into Window Mi_layoutWindowID "Contains National Statistics data © Crown copyright and database right " & Year(d_date) & Chr$(13) & "Yn cynnwys data Ystadegau Gwladol © Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|CPO|") Then ' CodePoint Open table paths detected
+				Create Text Into Window Mi_layoutWindowID "Contains Royal Mail data © Royal Mail crown copyright and database right " & Year(d_date) & Chr$(13) & "Yn cynnwys data Post Brenhinol © Brenhinol Bost Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|GM|") Then ' GetMapping table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Hawlfraint Map y Mileniwm Getmapping 2001" & Chr$(13) & "© Copyright Getmapping Millenium Map 2001" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|LM|") Then ' Landmark table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Landmark Information Group Limited" & Chr$(13) & "© Tirnod Gwybodaeth Grwp Cyfyngedig" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|COWI|") Then ' COWI table paths detected
+				Create Text Into Window Mi_layoutWindowID "© This orthophotography has been produced by COWI A/S from digital photography captured by them in 2006." & Chr$(13) & "Licensed by the Welsh Assembly Government's Department for Environment, Planning and Countryside." +Chr$(13)+ "© Mae'r orthoffotograffi hon wedi ei chynhyrchu gan  COWI A/S o ffotograffiaeth ddigidol a gymerwyd ganddynt yn 2006." +Chr$(13)+ "Wedi'u trwyddedu gan Adran Amgylchedd, Cynllunio a Chefn Gwlad Llywodraeth Cynulliad Cymru" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 1
+			End If
+			If InStr(1, s_copyrightsRequired, "|NP|") Then ' Next Perspectives table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Next Perspectives 2009, Powys County Council." & Chr$(13) &  "© Next Perspectives 2009, Cyngor Sir Powys." (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|IM|") Then ' Intermap table paths detected
+				Create Text Into Window Mi_layoutWindowID "Height information © Intermap Technology" & Chr$(13) & "Gwybodaeth Uchder © Intermap Technoleg" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|ENVI|") Then ' Environment Agency table paths detected
+				Create Text Into Window Mi_layoutWindowID "Additional information © Environment Agency " & Year(d_date) & Chr$(13) &  "Gwybodaeth ychwanegol © Asiantaeth yr Amgylchedd " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|CCW|") Then ' CCW table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright. Natural Resources Wales. All rights reserved, 100019741 " & Year(d_date) & Chr$(13) & "© Hawlfraint y Goron. Cyfoeth Naturiol Cymru. Cedwir pob hawl, 100019741 " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|FC|") Then ' Forestry Commission table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown copyright and database rights " & Year(d_date) & " Ordnance Survey 100021242" & Chr$(13) & "© Hawlfraint y Goron a hawliau cronfa ddata " & Year(d_date) & " Arolwg Ordnans 100021242" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|FCEW|") Then ' Forestry Commission Estate Woodlands table paths detected
+				Create Text Into Window Mi_layoutWindowID "Derived from data © Crown Copyright and Landmark Information Group" (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|WG|") Then ' Welsh Government table paths detected
+				Create Text Into Window Mi_layoutWindowID "© Crown Copyright. All rights reserved. Welsh Government " & Year(d_date) & Chr$(13) & "© Hawlfraint y Goron. Cedwir pob hawl. Llywodraeth Cymru " & Year(d_date) (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			If InStr(1, s_copyrightsRequired, "|PCC|") Then ' PCC table paths detected
+				Create Text Into Window Mi_layoutWindowID "Additional information © Powys County Council " & Year(d_date) & " No additional copies should be made without the permission of the Council." & Chr$(13) & "Gwybodaeth ychwanegol © Cyngor Sir Powys " & Year(d_date) & " Ni ddylid gwneud unrhyw gopïau ychwanegol heb ganiatâd y Cyngor." (f_copyrightPositionX,f_copyrightPositionY)(100,100) Font f_copyrightFont
+				f_copyrightPositionY = f_copyrightPositionY + 0.5
+			End If
+			
+			r = LogToFile("copyrights added to layout")
+			' track copyright objects
+			Fetch Last From s_layoutTableName
+			Mi_copyrightObjsMax = a_theRowNumber
+			r = LogToFile("copyrights end row: " & Mi_copyrightObjsMax)
+		End If
+		
+		Set Handler WinChangedHandler On
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Call ExitTemplates
+End Sub
+' ================================================================================
+
+' UpdateInsetFrames - Clears & Draws location markers objects into the Powys_UA and Extra Maps
+' ================================================================================
+Sub UpdateInsetFrames
+	OnError Goto ErrorHandler
+	r = LogToFile("entering UpdateInsetFrames subroutine >>")
+	
+	Dim i, i_index, i_windowID as Integer
+	Dim f_mapCentreX, f_mapCentreY, f_mapMaxX, f_mapMaxY, f_mapMinX, f_mapMinY as Float
+	Dim f_frameMaxX, f_frameMinX, f_frameScale, f_widthInLayout as Float
+	Dim s_layoutTableName, s_select as String
+	Dim a_theObject as Alias
+	Dim o_theObject as Object
+	
+	Set Coordsys Earth Projection 8, 79, "m", -2, 49, 0.9996012717, 400000, -100000
+	
+	f_mapCentreX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERX)
+	f_mapCentreY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_CENTERY)
+	f_mapMaxX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXX)
+	f_mapMaxY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MAXY)
+	f_mapMinX = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINX)
+	f_mapMinY = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_MINY)
+	
+	i_index = StructRecordFromID(Mi_openTemplateID)
+	Set Handler WinChangedHandler Off
+	
+	' primary inset map frame
+	If M_ARR_TEMPLATE_STRUCT(i_index).inset1_enabled = TRUE Then
+		r = LogToFile("adding objects to Primary inset map frame")
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		r = LogToFile("layout cosmetic table: " & s_layoutTableName)
+		' get map window ID from frame
+		r = LogToFile("attempting to select frame on row " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " from " & s_layoutTableName)
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " Into Selection"
+		r = LogToFile("running statement: " & s_select)
+		Run Command s_select
+		r = LogToFile("" & SelectionInfo(SEL_INFO_NROWS) & " rows selected")
+		' ensure there is a selection
+		If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+			If ObjectInfo(Selection.obj, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				' get the map window ID referenced by this frame
+				i_windowID = ObjectInfo(Selection.obj, OBJ_INFO_FRAMEWIN)
+				r = LogToFile("inset 1 map window ID = " & i_windowID)
+				f_frameMaxX = ObjectGeography(Selection.obj, OBJ_GEO_MAXX)
+				f_frameMinX = ObjectGeography(Selection.obj, OBJ_GEO_MINX)
+				' draw location objects
+				If M_ARR_TEMPLATE_STRUCT(i_index).inset1_objs = TRUE Then
+					Set Map Window i_windowID Layer 0 Editable On
+					Delete From WindowInfo(i_windowID, WIN_INFO_TABLE)
+					' determine size of main mapper on this frame in paper units
+					f_frameScale = MapperInfo(i_windowID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+					f_widthInLayout = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameScale * 100	' width of main map in paper units
+					r = LogToFile("f_widthInLayout = " & f_widthInLayout)
+					If f_widthInLayout > 0.5 Then
+						Create Rect Into Window i_windowID (f_mapMinX,f_mapMinY)(f_mapMaxX,f_mapMaxY) Pen (2,2,BLACK) Brush (1,WHITE)
+					Else
+						Create Point Into Window i_windowID (f_mapCentreX,f_mapCentreY) Symbol (35, Black, 16)
+					End If
+				End If
+				' sync frame
+				If M_ARR_TEMPLATE_STRUCT(i_index).inset1_sync = TRUE Then
+					Set Map Window i_windowID Center (f_mapCentreX,f_mapCentreY) Layer 0 Editable Off
+				End If
+			Else
+				Ms_errMsg = "[UpdateInsetFrames]: Primary inset map frame incorrectly defined"
+				Error 478
+			End If
+		Else
+			Ms_errMsg = "[UpdateInsetFrames]: Primary inset map frame was not selected"
+			Error 478
+		End If
+	End If
+	
+	' secondary inset map frame
+	If M_ARR_TEMPLATE_STRUCT(i_index).inset2_enabled = TRUE Then
+		r = LogToFile("adding objects to Secondary inset map frame")
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		r = LogToFile("layout cosmetic table: " & s_layoutTableName)
+		' get map window ID from frame
+		r = LogToFile("attempting to select frame on row " & M_ARR_TEMPLATE_STRUCT(i_index).inset1_rowid & " from " & s_layoutTableName)
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & M_ARR_TEMPLATE_STRUCT(i_index).inset2_rowid & " Into Selection"
+		r = LogToFile("running statement: " & s_select)
+		Run Command s_select
+		r = LogToFile(SelectionInfo(SEL_INFO_NROWS) & " rows selected")
+		' ensure there is a selection
+		If SelectionInfo(SEL_INFO_NROWS) > 0 Then
+			If ObjectInfo(Selection.obj, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				i_windowID = ObjectInfo(Selection.obj, OBJ_INFO_FRAMEWIN)
+				r = LogToFile("inset 2 map window ID = " & i_windowID)
+				' draw location objects
+				If M_ARR_TEMPLATE_STRUCT(i_index).inset2_objs = TRUE Then
+					Set Map Window i_windowID Layer 0 Editable On
+					Delete From WindowInfo(i_windowID, WIN_INFO_TABLE)
+					' determine size of main mapper on this frame in paper units
+					f_frameScale = MapperInfo(i_windowID, MAPPER_INFO_ZOOM) / (f_frameMaxX - f_frameMinX)	' frame scale in km
+					f_widthInLayout = MapperInfo(Mi_chosenMapperID, MAPPER_INFO_ZOOM) / f_frameScale * 100	' width of main map in paper units
+					r = LogToFile("f_widthInLayout = " & f_widthInLayout)
+					If f_widthInLayout > 0.5 Then
+						Create Rect Into Window i_windowID (f_mapMinX,f_mapMinY)(f_mapMaxX,f_mapMaxY) Pen (2,2,BLACK) Brush (1,WHITE)
+					Else
+						Create Point Into Window i_windowID (f_mapCentreX,f_mapCentreY) Symbol (35, Black, 16)
+					End If
+				End If
+				' sync frame
+				If M_ARR_TEMPLATE_STRUCT(i_index).inset2_sync = TRUE Then
+					Set Map Window i_windowID Center (f_mapCentreX,f_mapCentreY) Layer 0 Editable Off
+				End If
+			Else
+				Ms_errMsg = "[UpdateInsetFrames]: Secondary inset map frame incorrectly defined"
+				Error 478
+			End If
+		Else
+			Ms_errMsg = "[UpdateInsetFrames]: Secondary inset map frame was not selected"
+			Error 478
+		End If
+	End If
+	
+	' deselect any frames
+	Run Menu Command M_QUERY_UNSELECT
+	Set Handler WinChangedHandler On
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Call ExitTemplates
+End Sub
+' ================================================================================
+
+' SelectLargestMapFrame - Selects the largest map frame in the layout
+' ================================================================================
+Sub SelectLargestMapFrame
+	r = LogToFile("entering SelectLargestMapFrame subroutine >>")
+	
+	Set Handler WinChangedHandler Off
+	' ensure we have a layout window
+	If Mi_layoutWindowID <> 0 AND WindowInfo(Mi_layoutWindowID, WIN_INFO_TYPE) = WIN_LAYOUT Then
+		Dim s_layoutTableName, s_tempTablePath, s_tempTableName, s_select as String
+		Dim a_theObject, a_theRowNumber as Alias
+		Dim i_theRowNumber as Integer
+		Dim o_theObject as Object
+		
+		' get the table name associated with the layout window
+		s_layoutTableName = WindowInfo(Mi_layoutWindowID, WIN_INFO_TABLE)
+		r = LogToFile("layout cosmetic table: " & s_layoutTableName)
+		
+		' create aliases for dealing with the layout table
+		a_theObject = s_layoutTableName & ".obj"
+		a_theRowNumber = s_layoutTableName & ".rowid"
+		' create a temporary table to store information about the frames in the layout
+		' (we want to rank the frames in the layout by size and AFAIK MB has no array sorting functions)
+		s_tempTablePath = TempFileName$("") ' create a temporary path, e.g. C:\TEMP\~MAP0020.TAB
+		s_tempTableName = PathToFileName$(s_tempTablePath) ' generate a temporary name for the table that we can refer to later
+		s_tempTableName = Mid$(s_tempTableName, 2, Len(s_tempTableName) - 5)
+		
+		r = LogToFile("creating sort table " & s_tempTableName & " using file " & s_tempTablePath)
+		Create Table s_tempTableName (frame_row SmallInt, frame_width Float, frame_height Float) File s_tempTablePath
+		
+		' loop over the objects in the layout window
+		Fetch First from s_layoutTableName
+		Do While Not EOT(s_layoutTableName)
+			i_theRowNumber = a_theRowNumber
+			o_theObject = a_theObject
+			' test to see if the object on the current row is a frame
+			If ObjectInfo(o_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+				' r = LogToFile("frame identifed on row: " & a_theRowNumber)
+				' store the object number, height and width in the temporary table we created
+				Insert Into s_tempTableName Values (i_theRowNumber, ObjectGeography(o_theObject, OBJ_GEO_MAXX) - ObjectGeography(o_theObject, OBJ_GEO_MINX), ObjectGeography(o_theObject, OBJ_GEO_MAXY) - ObjectGeography(o_theObject, OBJ_GEO_MINY))
+			End If
+			' fetch the next row and repeat
+			Fetch Next from s_layoutTableName
+		Loop
+		
+		' get the object number associated with the largest frame in the layout from the temporary table
+		Select frame_row From s_tempTableName Where rowid = 1 Order By frame_width, frame_height Into Selection
+		i_theRowNumber = Selection.col1
+		r = LogToFile("largest frame is on row: " & i_theRowNumber)
+		' we dont need the temporary table any more, destroy it
+		Drop Table s_tempTableName
+		r = LogToFile(s_tempTableName & " removed, selecting largest frame")
+		
+		' select the largest map frame
+		s_select = "Select obj From " & s_layoutTableName & " Where rowid = " & i_theRowNumber & " Into Selection"
+		Run Command s_select
+		Set Handler WinChangedHandler On
+
+	End If
+	
+End Sub
+' ================================================================================
+
+' OpenAdminToolbar - verifies an admin user and displays the admin buttons on the toolbar
+' ================================================================================
+Sub OpenAdminToolbar
+	r = LogToFile("entering OpenAdminToolbar subroutine >>")
+	
+	Dim s_passwordProvided as String
+	' present password dialog for admin access
+	If Ms_adminPwd <> "" Then
+		' 1 character = 4 wide, 8 high
+		Dialog
+			Title "Template Administration"
+			Control StaticText
+				Title "Password: "
+				Position 6,8
+			Control EditText
+				Into s_passwordProvided
+				Width 120
+				Position 44,6
+				Password
+			Control StaticText
+				Title "** Entering administration will close all open tables"
+				Position 6,24
+			Control OKButton
+			Control CancelButton
+	End If
+	
+	' password correct or password isn't required
+	If (CommandInfo(CMD_INFO_DLG_OK) AND s_passwordProvided = Ms_adminPwd) OR Ms_adminPwd = "" Then
+		r = LogToFile("password accepted, opening admin toolbar >>")
+		Close All
+		If Mi_layoutWindowID > 0 Then
+			Call WinClosedHandler
+			r = LogToFile("<< returning to OpenAdminToolbar")
+		End If
+		' uncheck grid and scalebar buttons
+		Alter Button ID 5003 Uncheck			' toggle grid
+		Alter Button ID 5004 Uncheck			' toggle scalebar
+		' set toggle status
+		Ml_gridButtonStatus = 0
+		Ml_scaleButtonStatus = 0
+		' enable / disable toolbar buttons
+		Alter Button ID 5001 Disable			' create layout
+		Alter Button ID 5002 Disable			' close layout
+		Alter Button ID 5003 Disable			' toggle grid
+		Alter Button ID 5004 Disable			' toggle scalebar
+		Alter Button ID 5005 Disable			' options
+		
+		' create admin toolbar
+		Alter ButtonPad "Templates"
+			Remove ID 5007
+			Add
+			PushButton
+				Calling CloseAdminToolbar
+				Icon 13 File Ms_iconsFilePath
+				HelpMsg "\nClose Template Administration"
+				ID 5101
+			PushButton
+				Calling AdminPublishing
+				Icon 25 File Ms_iconsFilePath
+				HelpMsg "\nTemplate Publishing"
+				ID 5102
+			PushButton
+				Calling AdminOpenTemplate
+				Icon 19 File Ms_iconsFilePath
+				HelpMsg "\nOpen An Existing Template for Editing"
+				ID 5103
+			PushButton
+				Calling AdminSaveTemplate
+				Icon 23 File Ms_iconsFilePath
+				HelpMsg "\nSave Template"
+				ID 5104
+			PushButton
+				Calling AdminDeleteTemplate
+				Icon 21 File Ms_iconsFilePath
+				HelpMsg "\nDelete A Template"
+				ID 5105
+			PushButton
+				Calling M_FILE_CLOSE_ALL
+				Icon MI_ICON_CLOSE_ALL
+				HelpMsg "\nClose All"
+				ID 5106
+	End If
+	
+End Sub
+' ================================================================================
+
+' CloseAdminToolbar - removes the admin buttons from the toolbar
+' ================================================================================
+Sub CloseAdminToolbar
+	OnError Goto ErrorHandler
+	r = LogToFile("entering CloseAdminToolbar subroutine >>")
+	
+	Close All
+	Alter ButtonPad "Templates"
+		Remove ID 5101, 5102, 5103, 5104, 5105, 5106
+		Add PushButton
+			Calling OpenAdminToolbar
+			Icon 11 File Ms_iconsFilePath
+			HelpMsg "\nOpen Template Administration"
+			ID 5007
+	' enable / disable toolbar buttons
+	Alter Button ID 5001 Enable				' create layout
+	Alter Button ID 5005 Enable				' show options
+	Alter Button ID 5006 Enable				' show help
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' AdminPublishing - shows a dialog allowing a template to be published or un-published
+' ================================================================================
+Sub AdminPublishing
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminPublishing subroutine >>")
+	
+	' refresh template info
+	If Not RefreshTemplateInfo() Then
+		Note "No templates on file"
+		Exit Sub
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' present publishing dialog
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Publishing"
+		Control StaticText
+			Position 6,6
+			Title "Published templates:"
+		Control MultiListBox
+			Position 6,20 Width 150 Height 150
+			ID 2345
+			Title From Variable Ms_arr_publishedNames
+		Control Button
+			Position 164,75
+			Calling AdminUnPublishTemplate
+			Title " > "
+		Control Button
+			Position 164,95
+			Calling AdminPublishTemplate
+			Title " < "
+		Control StaticText
+			Position 210,6
+			Title "Templates not yet published:"
+		Control MultiListBox
+			Position 210,20 Width 150 Height 150
+			ID 5432
+			Title From Variable Ms_arr_unPublishedNames
+		Control OKButton
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' AdminPublishTemplate - adds the published flag to a template and updates the template publishing dialog
+' ================================================================================
+Sub AdminPublishTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminPublishTemplate subroutine >>")
+	
+	Dim i_controlValue, i_index as Integer
+	Dim l_flag as Logical
+	
+	' publish each selected template
+	i_controlValue = ReadControlValue(5432)
+	If i_controlValue = 0 Then Exit Sub End If
+	Do While i_controlValue
+		i_index = Mi_arr_unPublishedIndex(i_controlValue)
+		r = LogToFile("l_flag = TemplateAction(" & M_ARR_TEMPLATE_STRUCT(i_index).path & ", ""publish"")")
+		l_flag = TemplateAction(M_ARR_TEMPLATE_STRUCT(i_index).path, "publish")
+		i_controlValue = ReadControlValue(5432)
+	Loop
+	
+	' refresh template info
+	If RefreshTemplateInfo() Then
+		' update controls with refreshed info
+		Alter Control 2345
+			Title From Variable Ms_arr_publishedNames
+		Alter Control 5432
+			Title From Variable Ms_arr_unPublishedNames
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' AdminUnPublishTemplate - removes the published flag from a template and updates the template publishing dialog
+' ================================================================================
+Sub AdminUnPublishTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminUnPublishTemplate subroutine >>")
+	
+	Dim i_controlValue, i_index as Integer
+	Dim l_flag as Logical
+	
+	' get template names to publish
+	i_controlValue = ReadControlValue(2345)
+	If i_controlValue = 0 Then Exit Sub End If
+	Do While i_controlValue
+		i_index = Mi_arr_publishedIndex(i_controlValue)
+		r = LogToFile("l_flag = TemplateAction(" & M_ARR_TEMPLATE_STRUCT(i_index).path & ", ""unpublish"")")
+		l_flag = TemplateAction(M_ARR_TEMPLATE_STRUCT(i_index).path, "unpublish")
+		i_controlValue = ReadControlValue(2345)
+	Loop
+	
+	' refresh template info
+	If RefreshTemplateInfo() Then
+		' update controls with refreshed info
+		Alter Control 2345
+			Title From Variable Ms_arr_publishedNames
+		Alter Control 5432
+			Title From Variable Ms_arr_unPublishedNames
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' AdminSaveTemplate - saves the current layout workspace to a new template
+' ================================================================================
+Sub AdminSaveTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminSaveTemplate subroutine >>")
+	
+	Dim s_newTemplateName, s_arr_layoutFrameTitle(), s_generatedFilePath, s_layoutTableName as String
+	Dim a_theObject, a_theRowNumber as Alias
+	Dim i, j, k, i_id, i_arr_layoutWindowID(), i_arr_layoutFrameRow() as Integer
+	Dim l_flag, l_publish, l_inset1_enabled, l_inset2_enabled, l_inset1_objs, l_inset2_objs, l_inset1_sync, l_inset2_sync as Logical
+	Dim d_date as Date
+	
+	' check that a single layout window is open
+	If NumWindows() > 0 Then
+		r = LogToFile("NumWindows(): " & NumWindows())
+		For i = 1 to NumWindows()
+			If WindowInfo(i, WIN_INFO_TYPE) = WIN_LAYOUT Then
+				j = j + 1
+				ReDim i_arr_layoutWindowID(j)
+				i_arr_layoutWindowID(j) = WindowID(i)
+			End If
+		Next
+		If UBound(i_arr_layoutWindowID) = 0 Then
+			Mi_newTemplateWindowID = 0
+			Note "No Layout window to save"
+		ElseIf UBound(i_arr_layoutWindowID) = 1 Then
+			Mi_newTemplateWindowID = i_arr_layoutWindowID(1)
+			r = LogToFile("Mi_newTemplateWindowID = " & Mi_newTemplateWindowID)
+		Else
+			Mi_newTemplateWindowID = 0
+			Note "This tool is only capable of saving templates with a single layout window"
+		End If
+	Else
+		Mi_newTemplateWindowID = 0
+		Note "No Layout window to save"
+	End If
+	If Mi_newTemplateWindowID = 0 Then Exit Sub End If
+	
+	' check that a frame exists in the layout
+	s_layoutTableName = WindowInfo(Mi_newTemplateWindowID, WIN_INFO_TABLE)
+	a_theObject = s_layoutTableName & ".obj"
+	a_theRowNumber = s_layoutTableName & ".rowid"
+	l_flag = TRUE
+	ReDim i_arr_layoutFrameRow(0)
+	ReDim s_arr_layoutFrameTitle(0)
+	Fetch First From s_layoutTableName
+	Do While Not EOT(s_layoutTableName)
+		If ObjectInfo(a_theObject, OBJ_INFO_TYPE) = OBJ_TYPE_FRAME Then
+			If ObjectInfo(a_theObject, OBJ_INFO_FRAMETITLE) <> "" Then
+				i = UBound(i_arr_layoutFrameRow) + 1
+				ReDim i_arr_layoutFrameRow(i)
+				ReDim s_arr_layoutFrameTitle(i)
+				i_arr_layoutFrameRow(i) = a_theRowNumber									' rowid in layout table for this frame object
+				s_arr_layoutFrameTitle(i) = ObjectInfo(a_theObject, OBJ_INFO_FRAMETITLE)	' frame object title
+				r = LogToFile("s_arr_layoutFrameTitle(" & i & ") = " & s_arr_layoutFrameTitle(i) & ", layout row: " & i_arr_layoutFrameRow(i))
+			End If
+			l_flag = FALSE
+		End If
+		Fetch Next From s_layoutTableName
+	Loop
+	If l_flag Then
+		Note "Cannot save a template which does not contain a map frame"
+		Exit Sub
+	End If
+	
+	' prompt for template specification
+	s_newTemplateName = WindowInfo(Mi_newTemplateWindowID, WIN_INFO_NAME)
+	saveTemplateDlg:
+	l_flag = TRUE
+	' 1 character = 4 wide, 8 high
+	Dialog
+		Title "Template Definition"
+		Control StaticText
+			Title "Save template as: "
+			Position 8,8
+		Control EditText
+			Value s_newTemplateName
+			Into s_newTemplateName
+			Width 180
+			Position 70,6
+		Control CheckBox
+			Title "Publish the template immediately"
+			Into l_publish
+			Value FALSE
+			Position 8,24
+		Control CheckBox
+			Calling UpdateSaveTemplateDlg
+			Title "Specify an inset map"
+			Value FALSE
+			Into l_inset1_enabled
+			Position 8,38
+			ID 28561
+		Control CheckBox
+			Calling UpdateSaveTemplateDlg
+			Title "Additional inset map"
+			Value FALSE
+			Into l_inset2_enabled
+			Position 147,38
+			ID 28562
+			Disable
+		Control PopupMenu
+			Title From Variable s_arr_layoutFrameTitle
+			Into j
+			Position 14,60
+			Width 100
+			ID 28563
+			Disable
+		Control PopupMenu
+			Title From Variable s_arr_layoutFrameTitle
+			Into k
+			Position 154,60
+			Width 100
+			ID 28564
+			Disable
+		Control CheckBox
+			Title "Synchronise centre with main map"
+			Position 14,80
+			Value FALSE
+			Into l_inset1_sync
+			ID 28565
+			Disable
+		Control CheckBox
+			Title "Synchronise centre with main map"
+			Position 154,80
+			Value FALSE
+			Into l_inset2_sync
+			ID 28566
+			Disable
+		Control CheckBox
+			Title "Draw location object"
+			Position 14,94
+			Value TRUE
+			Into l_inset1_objs
+			ID 28567
+			Disable
+		Control CheckBox
+			Title "Draw location object"
+			Position 154,94
+			Value TRUE
+			Into l_inset2_objs
+			ID 28568
+			Disable
+		Control GroupBox
+			Position 5,50
+			Width 135
+			Height 60
+		Control GroupBox
+			Position 145,50
+			Width 135
+			Height 60
+		Control OKButton
+		Control CancelButton
+	If Err() > 0 Then Goto ErrorHandler End If
+		
+	If CommandInfo(CMD_INFO_DLG_OK) Then
+		If s_newTemplateName = "Layout" OR s_newTemplateName = "" Then Goto saveTemplateDlg End If	' stupidity check
+		
+		' check that the template name doesn't already exist
+		If RefreshTemplateInfo() Then
+			For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+				If s_newTemplateName = M_ARR_TEMPLATE_STRUCT(i).name Then
+					If Ask("Template " & s_newTemplateName & " already exists, attempt to overwrite?", "Yes", "No") Then
+						If TemplateAction(M_ARR_TEMPLATE_STRUCT(i).path, "delete") Then
+							Exit For
+						Else
+							Note "This template is currently published and cannot be overwritten." & Chr$(10) & "Please un-publish the template before deleting it."
+							Goto saveTemplateDlg
+						End If
+					Else
+						Goto saveTemplateDlg
+					End If
+				End If
+			' create a new template ID while we're checking names
+			If i_id <= M_ARR_TEMPLATE_STRUCT(i).id Then i_id = M_ARR_TEMPLATE_STRUCT(i).id + 1 End If
+			Next
+		End If
+		If Err() > 0 Then Goto ErrorHandler End If
+		
+		' save workspace as template
+		d_date = CurDate()
+		generatefilepath:
+		s_generatedFilePath = "templates\template_" & Format$(Year(d_date), "0000") & Format$(Month(d_date), "00") & Format$(Day(d_date), "00") & "_" & Int(Rnd(1) * 999) & ".wor"
+		If FileExists(s_generatedFilePath) Then Goto generatefilepath End If
+		Save Workspace As ApplicationDirectory$() & s_generatedFilePath
+		r = LogToFile("new template saved as: " & ApplicationDirectory$() & s_generatedFilePath)
+		
+		' localise workspace
+		If NOT LocaliseWorkspace(ApplicationDirectory$() & s_generatedFilePath) Then
+			Kill ApplicationDirectory$() & s_generatedFilePath
+			Ms_errMsg = "[AdminSaveTemplate]: Could not localise workspace"
+			Error 1871
+		End If
+		
+		' write template definition to file
+		Open File Ms_definitionsFilePath For Append As #1
+		Write #1, i_id, s_newTemplateName, s_generatedFilePath, l_publish, l_inset1_enabled, i_arr_layoutFrameRow(j), l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_arr_layoutFrameRow(k), l_inset2_sync, l_inset2_objs
+		Close File #1
+		r = LogToFile("template definition written to file")
+		Note  "Template saved as """ & s_newTemplateName & """"
+		
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' UpdateSaveTemplateDlg - enables/disables controls on the AdminSaveTemplate dialog
+' ================================================================================
+Sub UpdateSaveTemplateDlg
+	OnError Goto ErrorHandler
+
+	If ReadControlValue(28561) = 1 Then
+		Alter Control 28562 Enable
+		Alter Control 28563 Enable
+		Alter Control 28565 Enable
+		Alter Control 28567 Enable
+		If ReadControlValue(28562) = 1 Then
+			Alter Control 28564 Enable
+			Alter Control 28566 Enable
+			Alter Control 28568 Enable
+		Else
+			Alter Control 28564 Disable
+			Alter Control 28566 Disable
+			Alter Control 28568 Disable
+		End If
+	Else
+		Alter Control 28562 Disable
+		Alter Control 28563 Disable
+		Alter Control 28564 Disable
+		Alter Control 28565 Disable
+		Alter Control 28566 Disable
+		Alter Control 28567 Disable
+		Alter Control 28568 Disable
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' LocaliseWorkspace - copies tables and re-writes open table statements to local, relative paths to the workspace
+' ================================================================================
+Function LocaliseWorkspace (ByVal s_worPath as String) as Logical
+	OnError Goto ErrorHandler
+	r = LogToFile("LocaliseWorkspace(""" & s_worPath & """) called >>")
+	
+	Dim s_wor, s_worDir, s_tempFilePath, s_fileInput, s_fileOutput, s_tabName, s_sourcePath, s_targetPath as String
+	Dim tSecurity as SECURITY_ATTRIBUTES
+	Dim nStatus as Integer
+	tSecurity.nLength = 24	' standard length of structure in bytes
+	s_tempFilePath = ApplicationDirectory$() & PathToFileName$(TempFileName$(""))	' temporary file path for re-saving workspace file
+	
+	' create a directory for localising this workspace
+	s_wor = PathToFileName$(s_worPath)
+	s_worDir = "templates\" & Left$(s_wor, Len(s_wor) - 4)
+	nStatus = CreateDirectory(ApplicationDirectory$() & s_worDir, tSecurity)
+	If nStatus = 0 Then
+		r = LogToFile("Could not create directory: " & s_worDir)
+		LocaliseWorkspace = FALSE
+		Exit Function
+	End If
+	r = LogToFile("Workspace directory created: " & s_worDir)
+	
+	' copy workspace to a temporary file
+	Open File s_worPath For Input as #1
+	Open File s_tempFilePath For Output As #2
+	Line Input #1, s_fileInput
+	Do While Not EOF(1)
+		Print #2, s_fileInput
+		Line Input #1, s_fileInput
+	Loop
+	Close File #2
+	Close File #1
+	
+	' rewrite workspace
+	r = LogToFile("re-writing workspace")
+	Open File s_tempFilePath For Input As #1
+	Open File s_worPath For Output As #2
+	Line Input #1, s_fileInput
+	Do While Not EOF(1)
+		' get table path specified in workspace
+		If InStr(1, s_fileInput, "Open Table ") Then
+			s_sourcePath = Mid$(s_fileInput, 13, InStr(14, s_fileInput, """")-13)
+			' only re-save tables with MAPINFO in their filepath
+			r = LogToFile("Table path found: " & s_sourcePath)
+			If InStr(1, s_sourcePath, "MAPINFO\") > 0 OR InStr(1, s_sourcePath, "template_") > 0 Then
+				s_tabName = PathToTableName$(s_sourcePath)
+				s_targetPath = s_worDir & "\" & s_tabName
+				r = LogToFile("Re-writing file path as " & s_targetPath)
+				Commit Table s_tabName As ApplicationDirectory$() & s_targetPath
+				If NOT CommandInfo(CMD_INFO_STATUS) Then
+					r = LogToFile("Could not save table, re-write failed")
+					Error 350
+				End If
+				s_fileOutput = "Open Table """ & s_targetPath & """ As " & s_tabName & " Interactive"
+			Else
+				r = LogToFile("Non PCC data detected, writing original filepath: " & s_sourcePath)
+				s_fileOutput = s_fileInput
+			End If
+			Print #2, s_fileOutput
+		Else
+			Print #2, s_fileInput
+		End If
+		Line Input #1, s_fileInput
+	Loop
+	Close File #2
+	Close File #1
+	
+	Kill s_tempFilePath			' destroy temporary file
+	LocaliseWorkspace = TRUE	' function success
+	
+	' error handling
+	LeaveSub:
+		Exit Function
+	ErrorHandler:
+		If FileExists(s_tempFilePath) Then Kill s_tempFilePath End If
+		LocaliseWorkspace = FALSE
+		Resume LeaveSub
+End Function
+' ================================================================================
+
+' AdminOpenTemplate - opens a template workspace for editing
+' ================================================================================
+Sub AdminOpenTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminOpenTemplate subroutine >>")
+	
+	Dim s_currentDir, s_templateToOpen, s_templateNames() as String
+	Dim i, i_num as Integer
+	' Windows API call variables
+	Dim s_Buffer as String
+	Dim x, i_BuffSize as Integer
+	Dim lnTempNum as Integer
+	Dim lpPathName as String
+	
+	' present template choice
+	If RefreshTemplateInfo() Then
+		templateOpenDlg:
+		' get template names for dialog
+		For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+			ReDim s_templateNames(i)
+			s_templateNames(i) = M_ARR_TEMPLATE_STRUCT(i).name
+		Next
+		' 1 character = 4 wide, 8 high
+		Dialog
+			Title "Open Template"
+			Control StaticText
+				Title "Select a template to open"
+			Control ListBox
+				Title From Variable s_templateNames
+				Into i_num
+				Width 150
+				Height 150
+			Control OKButton
+			Control CancelButton
+		
+		If CommandInfo(CMD_INFO_DLG_OK) Then
+			If i_num = 0 Then Exit Sub End If
+			' If M_ARR_TEMPLATE_STRUCT(i_num).published Then
+				' Note "This template is currently published and cannot be edited." & Chr$(10) & "Please un-publish the template before editing it."
+				' Goto templateOpenDlg
+			' End If
+			r = LogToFile("opening " & M_ARR_TEMPLATE_STRUCT(i_num).name)
+			
+			' set the current directory in MapInfo to allow relative paths in template workspaces
+			i_BuffSize = 1024
+			s_Buffer = string$(i_BuffSize, chr$(32))
+			x = GetCurrentDirectory(i_BuffSize, s_Buffer)
+			s_currentDir = s_Buffer
+			lpPathName = ApplicationDirectory$()
+			r = LogToFile("setting MI working directory to: " & lpPathName)
+			lnTempNum = SetCurrentDirectory(lpPathName)
+			If lnTempNum = 0 Then
+				Ms_errMsg = "[OpenTemplate]: Could not set working directory!"
+				Error 478
+			End If
+			
+			' process the chosen template workspace before opening
+			s_templateToOpen = ApplicationDirectory$() & M_ARR_TEMPLATE_STRUCT(i_num).path
+			Call ProcessTemplateFile(s_templateToOpen)
+			' open template tables into Mapinfo
+			Set Handler WinChangedHandler Off
+			For i = 1 to UBound(Ms_arr_openTableStatements)
+				Run Command Ms_arr_openTableStatements(i)
+			Next
+			' open template workspace
+			Run Application s_templateToOpen
+			Set Handler WinChangedHandler On
+		
+			' set the current directory back to the one the user had been working in
+			lpPathName = s_currentDir
+			r = LogToFile("re-setting working directory to: " & lpPathName)
+			lnTempNum = SetCurrentDirectory(lpPathName)
+			If lnTempNum = 0 Then
+				Ms_errMsg = "[OpenTemplate]: Could not re-set current directory"
+				Error 478
+			End If
+			
+		End If
+	Else
+		Note "No templates on file"
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' AdminDeleteTemplate - deletes a template workspace
+' ================================================================================
+Sub AdminDeleteTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering AdminDeleteTemplate subroutine >>")
+	
+	Dim s_templateNames() as String
+	Dim i, i_num as Integer
+	Dim l_flag as Logical
+	
+	' present template choice
+	If RefreshTemplateInfo() Then
+		templateDeleteDlg:
+		' get template names for dialog
+		For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+			ReDim s_templateNames(i)
+			s_templateNames(i) = M_ARR_TEMPLATE_STRUCT(i).name
+		Next
+		' 1 character = 4 wide, 8 high
+		Dialog
+			Title "Delete Template"
+			Control StaticText
+				Title "Select a template to delete"
+			Control ListBox
+				Title From Variable s_templateNames
+				Into i_num
+				Width 150
+				Height 150
+			Control OKButton
+			Control CancelButton
+		
+		If CommandInfo(CMD_INFO_DLG_OK) Then
+			If i_num = 0 Then Exit Sub End If
+			If M_ARR_TEMPLATE_STRUCT(i_num).published Then
+				Note "This template is currently published and cannot be deleted." & Chr$(10) & "Please un-publish the template before deleting it."
+				Goto templateDeleteDlg
+			Else
+				l_flag = Ask("Are you certain you want to delete """ & M_ARR_TEMPLATE_STRUCT(i_num).name & """?" & Chr$(10) & Chr$(10) & "THIS ACTION IS IRREVERSIBLE!", "Delete", "Cancel")
+				If l_flag Then
+					If Not TemplateAction(M_ARR_TEMPLATE_STRUCT(i_num).path, "delete") Then
+						Ms_errMsg = "[AdminDeleteTemplate]: Could not delete template"
+						Error 478
+					End If
+				Else
+					Goto templateDeleteDlg
+				End If
+			End If
+		End If
+	Else
+		Note "No templates on file"
+	End If
+	If Err() > 0 Then Goto ErrorHandler End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' RefreshTemplateInfo - reads information on stored templates from the definitions file
+' ================================================================================
+Function RefreshTemplateInfo() as Logical
+	OnError Goto ErrorHandler
+	r = LogToFile("refreshing available templates...")
+	
+	Dim s_nameInput, s_pathInput as String
+	Dim i, j, i_id, i_inset1_rowid, i_inset2_rowid as Integer
+	Dim l_publishedInput, l_inset1_enabled, l_inset2_enabled, l_inset1_sync, l_inset2_sync, l_inset1_objs, l_inset2_objs as Logical
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		r = LogToFile("PowysTemplates [RefreshTemplateInfo]: Could not find template definitions file!")
+		RefreshTemplateInfo = FALSE
+		Exit Function
+	End If
+	
+	' clear storage arrays
+	ReDim M_ARR_TEMPLATE_STRUCT(0)
+	ReDim Ms_arr_publishedNames(0)
+	ReDim Mi_arr_publishedIndex(0)
+	ReDim Ms_arr_unPublishedNames(0)
+	ReDim Mi_arr_unPublishedIndex(0)
+	
+	r = LogToFile("template storage cleared, loading new data")
+	
+	' read from template definitions file
+	Open File Ms_definitionsFilePath For Input As #1
+	Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Do While Not EOF(1)
+		i = i + 1
+		ReDim M_ARR_TEMPLATE_STRUCT(i)
+		M_ARR_TEMPLATE_STRUCT(i).id = i_id
+		M_ARR_TEMPLATE_STRUCT(i).name = s_nameInput
+		M_ARR_TEMPLATE_STRUCT(i).path = s_pathInput
+		M_ARR_TEMPLATE_STRUCT(i).published = l_publishedInput
+		M_ARR_TEMPLATE_STRUCT(i).inset1_enabled = l_inset1_enabled
+		M_ARR_TEMPLATE_STRUCT(i).inset1_rowid = i_inset1_rowid
+		M_ARR_TEMPLATE_STRUCT(i).inset1_sync = l_inset1_sync
+		M_ARR_TEMPLATE_STRUCT(i).inset1_objs = l_inset1_objs
+		M_ARR_TEMPLATE_STRUCT(i).inset2_enabled = l_inset2_enabled
+		M_ARR_TEMPLATE_STRUCT(i).inset2_rowid = i_inset2_rowid
+		M_ARR_TEMPLATE_STRUCT(i).inset2_sync = l_inset2_sync
+		M_ARR_TEMPLATE_STRUCT(i).inset2_objs = l_inset2_objs
+		If l_publishedInput = TRUE Then
+			j = UBound(Ms_arr_publishedNames) + 1
+			ReDim Ms_arr_publishedNames(j)
+			ReDim Mi_arr_publishedIndex(j)
+			Ms_arr_publishedNames(j) = s_nameInput
+			Mi_arr_publishedIndex(j) = i
+		Else
+			j = UBound(Ms_arr_unPublishedNames) + 1
+			ReDim Ms_arr_unPublishedNames(j)
+			ReDim Mi_arr_unPublishedIndex(j)
+			Ms_arr_unPublishedNames(j) = s_nameInput
+			Mi_arr_unPublishedIndex(j) = i
+		End If
+		Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Loop
+	Close File #1
+	
+	' return values dependent on whether anything was read in from the definitions file
+	If i > 0 Then
+		RefreshTemplateInfo = TRUE
+		r = LogToFile(i & " templates read in from definitions file")
+	Else
+		RefreshTemplateInfo = FALSE
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Function
+	ErrorHandler:
+		Resume LeaveSub
+End Function
+' ================================================================================
+
+' TemplateAction - deletes, publishes or un-publishes a template
+' ================================================================================
+Function TemplateAction (ByVal s_path as String, ByVal s_action as String) as Logical
+	OnError Goto ErrorHandler
+	r = LogToFile("TemplateAction(""" & s_path & """, """ & s_action & """) called >>")
+	
+	Dim s, s_tempFilePath, s_fileInput, s_nameInput, s_pathInput as String
+	Dim i_id, i_inset1_rowid, i_inset2_rowid as Integer
+	Dim l_publishedInput, l_inset1_enabled, l_inset2_enabled, l_inset1_sync, l_inset2_sync, l_inset1_objs, l_inset2_objs as Logical
+	
+	TemplateAction = FALSE
+	s_tempFilePath = ApplicationDirectory$() & PathToFileName$(TempFileName$(""))
+	
+	If s_path = "" OR (s_action <> "delete" AND s_action <> "publish" AND s_action <> "unpublish") Then
+		Exit Function
+	End If
+	
+	' check for template definitions file
+	If Not FileExists(Ms_definitionsFilePath) Then
+		Note("PowysTemplates [TemplateAction]: Could not find template definitions file!")
+		Exit Function
+	End If
+	
+	' copy template specifications file
+	Open File Ms_definitionsFilePath For Input As #1
+	Open File s_tempFilePath For Output As #2
+	Line Input #1, s_fileInput
+	Do While Not EOF(1)
+		Print #2, s_fileInput
+		Line Input #1, s_fileInput
+	Loop
+	Close File #2
+	Close File #1
+	
+	' rewrite file
+	r = LogToFile("re-writing template specifications file")
+	Open File s_tempFilePath For Input As #1
+	Open File Ms_definitionsFilePath For Output As #2
+	Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Do While Not EOF(1)
+		Do Case s_action
+			Case "publish"
+				If s_pathInput = s_path Then
+					r = LogToFile("setting publish flag to TRUE on " & s_pathInput)
+					l_publishedInput = TRUE
+					TemplateAction = TRUE
+				End If
+				Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+			Case "unpublish"
+				If s_pathInput = s_path Then
+					r = LogToFile("setting publish flag to FALSE on " & s_pathInput)
+					l_publishedInput = FALSE
+					TemplateAction = TRUE
+				End If
+				Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+			Case "delete"
+				If s_pathInput <> s_path Then
+					Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+				ElseIf l_publishedInput Then
+					r = LogToFile("published flag is set to TRUE, delete abandoned")
+					Write #2, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+				Else
+					r = LogToFile("removing file " & s_path)
+					Kill ApplicationDirectory$() & s_path
+					r = LogToFile("removing directory " & ApplicationDirectory$() & "templates\" & PathToTableName$(s_path))
+					s = "cmd /c rd /s /q """ & ApplicationDirectory$() & "templates\" & PathToTableName$(s_path) & """"
+					Run Program s
+					TemplateAction = TRUE
+				End If
+		End Case
+		Input #1, i_id, s_nameInput, s_pathInput, l_publishedInput, l_inset1_enabled, i_inset1_rowid, l_inset1_sync, l_inset1_objs, l_inset2_enabled, i_inset2_rowid, l_inset2_sync, l_inset2_objs
+	Loop
+	Close File #2
+	Close File #1
+	
+	' destroy temporary file
+	Kill s_tempFilePath
+	
+	' error handling
+	LeaveSub:
+		Exit Function
+	ErrorHandler:
+		If FileExists(s_tempFilePath) Then Kill s_tempFilePath End If
+		Resume LeaveSub
+End Function
+' ================================================================================
+
+' StructRecordFromID - Returns the array record number for a given template ID
+' ================================================================================
+Function StructRecordFromID (ByVal i_templateID as Integer) as Integer
+	
+	Dim i, returnVal as Integer
+	
+	For i = 1 to UBound(M_ARR_TEMPLATE_STRUCT)
+		If M_ARR_TEMPLATE_STRUCT(i).id = i_templateID Then
+			returnVal = i
+			Exit For
+		End If
+	Next
+	
+	StructRecordFromID = returnVal
+	
+End Function
+' ================================================================================
+
+' TemplateHelp - Copies the help file to the local drive if necessary and then displays it
+' ================================================================================
+Sub TemplateHelp
+	OnError Goto ErrorHandler
+	r = LogToFile("entering TemplateHelp subroutine >>")
+	
+	' check for the help file
+	If Not FileExists(Ms_networkHelpFile) Then
+		Note "Error in MBX routine [TemplateHelp]: Could not find the help file on the network!  Please contact Corporate GIS."
+		Exit Sub
+	End If
+	
+	' copy help file to local drive
+	r = LogToFile("attempting to refresh chm file")
+	If FileExists(Ms_localHelpFile) Then
+		Kill Ms_localHelpFile
+	End If
+	
+	dim lpExistingFileName, lpNewFileName as String
+	dim bFailIfExists as Logical
+	dim lnTempNum as Integer
+	lpExistingFileName = Ms_networkHelpFile
+	lpNewFileName = Ms_localHelpFile
+	bFailIfExists = false
+	lnTempNum = CopyFile(lpExistingFileName, lpNewFileName, bFailIfExists)
+	if lnTempNum = 0 Then
+		Note "Error in MBX routine [TemplateHelp]: Could not copy the help file from the network!  Please contact Corporate GIS."
+		Exit Sub
+	End If
+	
+	' get executable path for chm files from Win32 API
+	Dim s_Buffer, s_defaultdir, s_document, s_executable As String
+	Dim x, i_BuffSize as Integer
+	s_document = Ms_networkHelpFile
+	i_BuffSize = 1024
+	s_Buffer = string$(i_BuffSize, chr$(32))
+	x = FindExecutable(s_document, s_defaultdir, s_Buffer)
+	s_executable = LTrim$(RTrim$(s_Buffer))
+	r = LogToFile("help executable: " & s_executable)
+	
+	' open local help file
+	Run Program s_executable & " " & Ms_localHelpFile
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' CloseTemplate - closes the open template and any supporting tables it may have opened
+' ================================================================================
+Sub CloseTemplate
+	OnError Goto ErrorHandler
+	r = LogToFile("entering CloseTemplate subroutine >>")
+	
+	Dim i, j as Integer
+	Dim l_flag as Logical
+	Dim s_command as String
+	
+	Set Handler WinClosedHandler Off
+	' close the layout window, if open
+	For i = 1 to NumWindows()
+		If WindowID(i) = Mi_layoutWindowID Then
+			r = LogToFile("closing layout window with ID " & Mi_layoutWindowID)
+			Close Window WindowID(i)
+		End If
+	Next
+	' close any windows that the template has opened
+	For i = 1 to UBound(Mi_arr_windowsToClose)
+		l_flag = FALSE
+		For j = 1 to NumWindows()
+			If Mi_arr_windowsToClose(i) = WindowID(j) Then l_flag = TRUE End If
+		Next
+		If l_flag Then
+			r = LogToFile("closing supporting window with ID " & Mi_arr_windowsToClose(i))
+			Close Window Mi_arr_windowsToClose(i)
+		End If
+	Next
+	' close any tables that the template has opened
+	For i = 1 to UBound(Ms_arr_tablesToClose)
+		l_flag = FALSE
+		For j = 1 to NumTables()
+			If Ms_arr_tablesToClose(i) = TableInfo(j,TAB_INFO_NAME) Then l_flag = TRUE End If
+		Next
+		If l_flag Then
+			r = LogToFile("closing supporting table with name " & Ms_arr_tablesToClose(i))
+			Close Table Ms_arr_tablesToClose(i)
+		End If
+	Next
+	Set Handler WinClosedHandler On
+	
+	' enable / disable toolbar buttons
+	' Alter Menu ID 4 Remove "Graticule"
+	Alter Button ID 5001 Enable				' create layout
+	Alter Button ID 5002 Disable			' close layout
+	Alter Button ID 5003 Disable			' toggle grid
+	Alter Button ID 5004 Disable			' toggle scalebar
+	
+	' uncheck grid and scalebar buttons
+	Alter Button ID 5003 Uncheck			' toggle grid
+	Alter Button ID 5004 Uncheck			' toggle scalebar
+	
+	' make the print buttons unavailable until a template has been created
+	' Alter Menu Item M_FILE_PRINT Disable
+	' If SystemInfo(SYS_INFO_MIBUILD_NUMBER) > 950 Then
+		' s_command = "Alter Menu Item M_FILE_PRINT_TO_PDF Disable"
+		' Run Command s_command
+	' End If
+	
+	Mi_layoutWindowID = 0
+	Mi_chosenMapperID = 0
+	Mi_openTemplateID = 0
+	
+	r = LogToFile("template cleanup complete")
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call ExitTemplates
+End Sub
+' ================================================================================
+
+' ================================================================================
+' AboutTemplates - Provides information about PowysTemplates
+' ================================================================================
+Sub AboutTemplates
+	Dialog
+		Title "About Powys Templates Version " & Gf_ver
+		Control StaticText
+			Width 255 Height 65
+			Title "The Powys Templates toolbar provides a fast, easy way to create MapInfo layouts for printing. " &
+				  "All of the necessary copyrights, watermarks and logos are automatically included in the final " &
+				  "layout for your convenience, allowing you to just get on with the job of creating a map." & Chr$(10) & Chr$(10) &
+				  "Please see the Powys Templates help file for more information (the green question mark button " &
+				  "on the toolbar), or contact Corporate GIS via gis@powys.gov.uk if you need any other help."
+		Control OKButton
+	
+End Sub
+' ================================================================================
+
+' ================================================================================
+' WinClosedHandler - called by Mapinfo when a window is closed
+' ================================================================================
+Sub WinClosedHandler
+	OnError Goto ErrorHandler
+	r = LogToFile("WinClosedHandler triggered by: " & WindowInfo(CommandInfo(CMD_INFO_WIN), WIN_INFO_NAME) & " (" & CommandInfo(CMD_INFO_WIN) & ")")
+	Dim i as Integer
+	Dim l_resetApp as Logical
+	
+	l_resetApp = FALSE
+	' check to see which window closed
+	If CommandInfo(CMD_INFO_WIN) = Mi_layoutWindowID OR CommandInfo(CMD_INFO_WIN) = Mi_chosenMapperID Then l_resetApp = TRUE End If
+	For i = 1 to UBound(Mi_arr_windowsToClose)
+		If CommandInfo(CMD_INFO_WIN) = Mi_arr_windowsToClose(i) Then l_resetApp = TRUE End If
+	Next
+	' if a section of the template has been closed, reset the application
+	If l_resetApp Then
+		r = LogToFile("layout or supporting window closed, closing template")
+		Call CloseTemplate
+		r = LogToFile("returned to WinClosedHandler")
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' WinChangedHandler - called by Mapinfo when a map window is panned or zoomed, or whenever a map layer is added or removed
+' ================================================================================
+Sub WinChangedHandler
+	OnError Goto ErrorHandler
+	r = LogToFile("WinChangedHandler triggered by: " & WindowInfo(CommandInfo(CMD_INFO_WIN), WIN_INFO_NAME) & " (" & CommandInfo(CMD_INFO_WIN) & ")")
+
+	' make sure that the window that changed was the mapper chosen in the template dialog
+	If CommandInfo(CMD_INFO_WIN) = Mi_chosenMapperID AND Mi_layoutWindowID <> 0 Then
+		' clear and add new copyright objects
+		Call DrawCopyrightObjects
+		If Err() > 0 Then Goto ErrorHandler End If
+		r = LogToFile("<< returning to WinChangedHandler")
+		Call UpdateInsetFrames
+		r = LogToFile("<< returning to WinChangedHandler")
+		If Err() > 0 Then Goto ErrorHandler End If
+		If Ml_gridButtonStatus = 1 Then
+			' clear and add a new grid
+			Call DrawGridObjects (TRUE, TRUE)
+		End If
+		If Ml_scaleButtonStatus = 1 Then
+			' clear and add a new scalebar
+			Call DrawScaleBarObjects (TRUE, TRUE)
+		End If
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' LogToFile - Writes a given message to the application log
+' ================================================================================
+Function LogToFile (ByVal s_logString as String) as Logical
+	OnError Goto ErrorHandler
+	
+	' open log file and append the given string
+	Open File Ms_logFilePath for Append as #99
+	Print #99, Str$(CurDate()) & " " & Time(24) & " - " & s_logString
+	Close File #99
+	
+	Exit Function
+	ErrorHandler:
+		Resume Next	' WARNING: if there are problems writing to the log file, errors will be suppressed by this line
+End Function
+' ================================================================================
+
+' LoadAppState - Loads previous application state from ini file
+' ================================================================================
+Sub LoadAppState
+	OnError Goto ErrorHandler
+	Dim s_buffer, s_fontName as String
+	Dim i_penWidth, i_penPattern, i_penColour, i_fontStyle, i_fontSize, i_fontForecolor, i_fontBackcolor as Integer
+	
+	' load application state if ini file exists
+	If FileExists(Ms_stateFilePath) Then
+		OnError Goto CloseFile
+		Open File Ms_stateFilePath For Input as #1
+		Do While NOT EOF(1)
+			Line Input #1, s_buffer
+			If InStr(1, s_buffer, "[padDockPosition]") Then Input #1, Mi_padDockPos End If															' toolbar dock position
+			If InStr(1, s_buffer, "[padPositionX]") Then Input #1, Mf_padPosX End If																' toolbar x position
+			If InStr(1, s_buffer, "[padPositionY]") Then Input #1, Mf_padPosY End If																' toolbar y position
+			If InStr(1, s_buffer, "[padWidth]") Then Input #1, Mi_padWidth End If																	' toolbar button width
+			If InStr(1, s_buffer, "[drawGridlines]") Then Input #1, Ml_drawGridLines End If															' gridlines on/off
+			If InStr(1, s_buffer, "[gridLineStyle]") Then Input #1, i_penWidth, i_penPattern, i_penColour End If									' grid line style
+			If InStr(1, s_buffer, "[gridLabelFormat]") Then Input #1, Mi_gridLabelFormat End If														' grid label style
+			If InStr(1, s_buffer, "[gridLabelFont]") Then Input #1, s_fontName, i_fontStyle, i_fontSize, i_fontForecolor, i_fontBackcolor End If	' grid label font
+			If InStr(1, s_buffer, "[scaleBarPosition]") Then Input #1, Mi_scaleBarPosition End If													' scalebar position
+			If InStr(1, s_buffer, "[scaleBarStyle]") Then Input #1, Mi_scaleBarStyle End If															' scalebar style
+			If InStr(1, s_buffer, "[scaleBarUnits]") Then Input #1, Mi_scaleBarUnits End If															' scalebar units
+		Loop
+		Close File #1
+		OnError Goto ErrorHandler
+		
+		' compile grid line style and font
+		Mp_gridLineStyle = MakePen(i_penWidth, i_penPattern, i_penColour)
+		Mf_gridLabelFont = MakeFont(s_fontName, i_fontStyle, i_fontSize, i_fontForecolor, i_fontBackcolor)
+		
+		r = LogToFile("*****************************************")
+		r = LogToFile("application state loaded")
+		
+	End If
+	
+	' error handling
+	LeaveSub:
+		Exit Sub
+	CloseFile:
+		Close File #1
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' SaveAppState - Saves application state to ini file
+' ================================================================================
+Sub SaveAppState
+	OnError Goto ErrorHandler
+	Dim i_padDockPos, i_padWidth as Integer
+	Dim f_padPosX, f_padPosY as Float
+	
+	' make sure we're working in consistent paper units to capture the buttonpad position accurately 
+	Set Paper Units "in"
+	i_padDockPos = ButtonPadInfo("Templates", BTNPAD_INFO_DOCK_POSITION)
+	f_padPosX = ButtonPadInfo("Templates", BTNPAD_INFO_X)
+	f_padPosY = ButtonPadInfo("Templates", BTNPAD_INFO_Y)
+	i_padWidth = ButtonPadInfo("Templates", BTNPAD_INFO_WIDTH)
+	
+	OnError Goto CloseFile
+	Open File Ms_stateFilePath For Output as #1
+	Print #1, "; WARNING: This file is written automatically by the PowysTemplates MBX to save the application state on exit,"
+	Print #1, "; manually editing the lines below may cause unpredictable behaviour. Change options within the application instead"
+	Print #1, "[padDockPosition]"
+	Write #1, i_padDockPos
+	Print #1, "[padPositionX]"
+	Write #1, f_padPosX
+	Print #1, "[padPositionY]"
+	Write #1, f_padPosY
+	Print #1, "[padWidth]"
+	Write #1, i_padWidth
+	Print #1, "[drawGridlines]"
+	Write #1, Ml_drawGridLines
+	Print #1, "[gridLineStyle]"
+	Write #1, StyleAttr(Mp_gridLineStyle, PEN_WIDTH), StyleAttr(Mp_gridLineStyle, PEN_PATTERN), StyleAttr(Mp_gridLineStyle, PEN_COLOR)
+	Print #1, "[gridLabelFormat]"
+	Write #1, Mi_gridLabelFormat
+	Print #1, "[gridLabelFont]"
+	Write #1, StyleAttr(Mf_gridLabelFont, FONT_NAME), StyleAttr(Mf_gridLabelFont, FONT_STYLE), StyleAttr(Mf_gridLabelFont, FONT_POINTSIZE), StyleAttr(Mf_gridLabelFont, FONT_FORECOLOR), StyleAttr(Mf_gridLabelFont, FONT_BACKCOLOR)
+	Print #1, "[scaleBarPosition]"
+	Write #1, Mi_scaleBarPosition
+	Print #1, "[scaleBarStyle]"
+	Write #1, Mi_scaleBarStyle
+	Print #1, "[scaleBarUnits]"
+	Write #1, Mi_scaleBarUnits
+	Close File #1
+	OnError Goto ErrorHandler
+	
+	r = LogToFile("application state saved")
+	LeaveSub:
+		Exit Sub
+	CloseFile:
+		Close File #1
+	ErrorHandler:
+		Ml_saveDebugInfo = TRUE
+		r = LogToFile("ERROR " & Err() & " in " & Error$())
+		If Ms_errMsg <> "" Then
+			r = LogToFile("Details: " & Ms_errMsg)
+			Ms_errMsg = ""
+		End If
+		Note "CRITICAL error in " & ApplicationName$() & "! Please contact Corporate GIS."
+		Call CloseTemplate
+		Resume LeaveSub
+End Sub
+' ================================================================================
+
+' ================================================================================
+' ExitTemplates - Closes the PowysTemplates application
+' ================================================================================
+Sub ExitTemplates
+	Call CloseTemplate
+	Call SaveAppState
+	Set Handler WinChangedHandler On
+	Set Handler SelChangedHandler On
+	Alter Menu "Tools" Remove "Powys Templates"
+	r = LogToFile("application closed")
+	If Ml_saveDebugInfo Then
+		Dim s_fn as String
+		s_fn = GetFolderPath$(FOLDER_MI_PREFERENCE) & Format$(Year(CurDate()), "0000") & Format$(Month(CurDate()), "00") & Format$(Day(CurDate()), "00") & "_" & FormatTime$(CurTime(), "HHmm") & "PowysTemplatesLog.txt"
+		Save File Ms_logFilePath As s_fn
+	End If
+	Kill Ms_logFilePath
+	End Program
+End Sub
+' ================================================================================
