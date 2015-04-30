@@ -1,8 +1,8 @@
 !Workspace
 !Version  950
 !Charset WindowsLatin1
-Open Table "templates\template_20140827_827\PCC_logo" As Pcc_logo Interactive
-Open Table "templates\template_20140827_827\final_watermark" As final_watermark Interactive
+Open Table "templates\template_20150423_777\PCC_logo" As Pcc_logo Interactive
+Open Table "templates\template_20150423_777\final_watermark" As final_watermark Interactive
 Open Table "\\powyscc.local\group\GIS\MAPDATA\OS Maps\OS_BoundaryLine\Current Local Boundaries\Powys_UA" As Powys_UA Interactive
 Set Window MapBasic
   Position (0.125,8.94792) Units "in"
@@ -37,7 +37,7 @@ Set Window FrontWindow() ScrollBars Off Autoscroll On
 Set Map
   CoordSys NonEarth Units "m"
   Center (146.8906486,105.7562799)
-  Zoom 293.3927362 Units "m"
+  Zoom 293.4664455 Units "m"
   Preserve Zoom Display Zoom
   Distance Units "m" Area Units "sq m" XY Units "m"
   Distance Type Cartesian
@@ -76,190 +76,91 @@ Set Window FrontWindow() Printer
  Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
  Papersize 9
 Layout
-  Position (0.125,0.0729167) Units "in"
-  Width 9.30208 Units "in" Height 8.44792 Units "in" 
+  Position (0.0833333,0.0625) Units "in"
+  Width 7.07292 Units "in" Height 5.11458 Units "in" 
   Dim uniqueStringName As String
   uniqueStringName = "Set " + SessionInfo(1)
   Set CoordSys Layout Units "in"
-  Create Rect (0.3632,0.3653) (7.9014,11.0236)
+  Create Rect (0.3632,0.2993) (11.0431,7.984)
     Pen (1,2,0) 
     Brush (1,16777215,16777215)
-  Create Rect (0.3632,9.9153) (7.9014,11.0229)
+  Create Rect (0.3632,7.2944) (11.0431,7.9833)
     Pen (1,2,0) 
     Brush (1,16777215,16777215)
   Create Text
     "Cyngor Sir"
-    (0.5542,10.234) (1.1972,10.384)
+    (0.5625,7.4757) (1.2056,7.6257)
     Font ("Arial",1,9,32768)
 
   Create Text
     "County Council"
-    (2.1653,10.234) (3.0951,10.384)
+    (2.1736,7.4757) (3.1035,7.6257)
     Font ("Arial",1,9,32768)
 
-  Create Line (3.3042,10.0111) (3.3042,10.9528)
+  Create Line (3.3986,7.3674) (3.3986,7.9188)
     Pen (1,2,0) 
-  Create Line (0.5542,10.4403) (3.0819,10.4403)
+  Create Line (0.4604,7.6597) (3.2132,7.6583)
     Pen (1,2,16711680) 
   Create Text
-    "Printed by: %%username"
-    (0.559,10.8097) (1.5292,10.9278)
+    "Printed by:"
+    (0.4646,7.8139) (0.8861,7.9319)
     Font ("Arial",256,6,0,16777215)
 
   Create Text
-    "Date: %%date"
-    (1.6285,10.8097) (2.1868,10.9278)
+    "Date:"
+    (1.584,7.8139) (1.8056,7.9319)
     Font ("Arial",256,6,0,16777215)
 
-  Create Frame (0.6,0.591) (7.6868,9.6743)
+  Create Frame (0.6,0.55) (10.8,7.0799)
     Pen (1,2,0) 
     Brush (2,16777215,16777215)
     Title ""
     FillFrame On
-  Create Frame (1.325,9.9583) (2.0667,10.45)
+  Create Frame (1.3333,7.2) (2.075,7.6917)
     Pen (1,1,0) 
     Brush (2,16777215,16777215)
     Title "Pcc_logo Map"
     FillFrame On
   Create Text
+    "%%username"
+    (0.8771,7.8139) (1.4201,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
+    "%%date"
+    (1.8028,7.8139) (2.1361,7.9319)
+    Font ("Arial",256,6,0,16777215)
+
+  Create Text
     "%%title"
-    (3.5201,10.0729) (4.1937,10.3181)
+    (3.5722,7.35) (4.2458,7.5951)
     Font ("Arial",256,14,0,16777215)
 
   Create Text
-    "%%ref_no"
-    (3.5201,10.6) (4.4437,10.8451)
+    "Ref No%%ref_no"
+    (3.5722,7.65) (5.1056,7.8951)
     Font ("Arial",256,14,0,16777215)
 
-  Create Frame (6.3937,0.7028) (7.4979,2.4986)
+  Create Frame (9.6111,0.5951) (10.7153,2.391)
     Pen (1,2,0) 
     Brush (2,16777215,16777215)
     Title "Powys_UA Map"
     FillFrame On
-  Create Frame (0.7111,2.5493) (7.5069,7.9778)
+  Create Frame (1.6104,1.1194) (9.6632,6.4326)
     Pen (1,1,0) 
     Brush (1,16777215,16777215)
     Title "final_watermark Map"
     FillFrame On
-  Create Text
-    "%%additional_text"
-    (3.0111,6.659) (4.0458,6.8007)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%additional_text2"
-    (4.1257,7.4507) (5.2306,7.5924)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%some_more_text"
-    (3.5424,7.8153) (4.7042,7.9569)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%text as well"
-    (5.0847,6.4715) (5.9313,6.6132)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%try_this"
-    (5.0431,7.0236) (5.6729,7.1653)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%how_many_more?"
-    (3.6257,5.6903) (4.884,5.8319)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%text!"
-    (2.0424,6.2528) (2.5042,6.3944)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%and_again"
-    (6.4285,7.3465) (7.2403,7.4882)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%some more"
-    (4.8243,8.4507) (5.6778,8.5924)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%moar"
-    (5.7618,10.0549) (6.2715,10.1965)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%mooooar"
-    (5.866,10.2424) (6.5861,10.384)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%MMMOOOAAAARRRR"
-    (6.0014,10.5549) (7.5333,10.6965)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%ho_hum"
-    (5.5743,10.659) (6.2528,10.8007)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%yet_more"
-    (5.2306,9.6799) (5.9792,9.8215)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%nineteen"
-    (2.241,7.4167) (2.9479,7.5583)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty"
-    (2.5222,7.9063) (3.109,8.0479)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_one"
-    (3.0951,8.5208) (3.9618,8.6625)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_two"
-    (3.0431,8.9583) (3.8965,9.1)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_three"
-    (5.3764,9.0208) (6.3215,9.1625)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_four"
-    (1.1368,8.5833) (2.0118,8.725)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_five"
-    (1.3972,7.8958) (2.2507,8.0375)
-    Font ("Arial",0,9,0)
-
-  Create Text
-    "%%twenty_six"
-    (2.2306,6.9063) (3.0424,7.0479)
-    Font ("Arial",0,9,0)
-
   Set Layout Ruler On Pagebreaks On Frame Contents Active
-  Zoom 50 Center (8.86736,8.05081) Extents To Fit
+  Zoom 56.7534 Center (5.84583,4.15169) Extents To Fit
   Set Window FrontWindow() Autoscroll On Enhanced On
   Run Command uniqueStringName
   Undim uniqueStringName
-Set Window FrontWindow() Title "Testing Template"
+Set Window FrontWindow() Title "A4 Landscape General"
 Set Window FrontWindow() Printer
- Name "\\LLW-COH-FPS-03\FollowYou" Orientation Portrait Copies 1
+ Name "\\LLW-COH-FPS-03\FollowYou" Orientation Landscape Copies 1
  Papersize 9
+ Margins Left 0.24 Right 0.228333 Top 0.233333 Bottom 0.233333 Units "in"
 Set Digitizer
   (306000,332000) (1770,5434) Label "Pt 1",
   (306000,320000) (1706,712) Label "Pt 2",

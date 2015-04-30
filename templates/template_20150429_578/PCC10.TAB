@@ -1,0 +1,7 @@
+!table
+!version 100
+FIELDS: 4
+    Map Char (10) Index 1
+    Name Char (15)
+    MapX Float
+    MapY Float

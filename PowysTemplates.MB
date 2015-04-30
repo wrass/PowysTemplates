@@ -2353,13 +2353,13 @@ Function LocaliseWorkspace (ByVal s_worPath as String) as Logical
 		' get table path specified in workspace
 		If InStr(1, s_fileInput, "Open Table ") Then
 			s_sourcePath = Mid$(s_fileInput, 13, InStr(14, s_fileInput, """")-13)
-			' only re-save tables with MAPINFO in their filepath
+			' localise any tables not sourced from the MAPDATA directory
 			r = LogToFile("Table path found: " & s_sourcePath)
-			If InStr(1, s_sourcePath, "MAPINFO\") > 0 OR InStr(1, s_sourcePath, "template_") > 0 Then
+			If NOT InStr(1, s_sourcePath, "MAPDATA\") > 0 Then
 				s_tabName = PathToTableName$(s_sourcePath)
 				s_targetPath = s_worDir & "\" & s_tabName
-				r = LogToFile("Re-writing file path as " & s_targetPath)
 				Commit Table s_tabName As ApplicationDirectory$() & s_targetPath
+				r = LogToFile("Re-writing file path as " & s_targetPath)
 				If NOT CommandInfo(CMD_INFO_STATUS) Then
 					r = LogToFile("Could not save table, re-write failed")
 					Error 350
